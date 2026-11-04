@@ -24,12 +24,9 @@ type savedSession struct {
 // Save includes the pending question's evidence, so reopening does not change
 // the question or sources after a candidate has already started thinking.
 func (c *Coach) Save(path string) error {
-	data, e := json.MarshalIndent(savedSession{Version: 1, Topic: c.topic, KB: c.kb, Index: c.index, Followup: c.followup, Pending: c.pending, History: c.History}, "", "  ")
+	data, e := c.Snapshot()
 	if e != nil {
 		return e
-	}
-	if len(data) > 8<<20 {
-		return errors.New("interview session too large")
 	}
 	if e = os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return e
@@ -51,11 +48,24 @@ func (c *Coach) Load(path string) error {
 	if e != nil {
 		return e
 	}
+	return c.Restore(data)
+}
+
+// Snapshot/Restore allow the unified conversation to atomically persist both
+// interview progress and tool receipts in one application-owned transaction.
+func (c *Coach) Snapshot() ([]byte, error) {
+	b, err := json.Marshal(savedSession{Version: 1, Topic: c.topic, KB: c.kb, Index: c.index, Followup: c.followup, Pending: c.pending, History: c.History})
+	if len(b) > 8<<20 {
+		return nil, errors.New("interview session too large")
+	}
+	return b, err
+}
+func (c *Coach) Restore(data []byte) error {
 	if len(data) > 8<<20 {
 		return errors.New("interview session too large")
 	}
 	var state savedSession
-	if e = json.Unmarshal(data, &state); e != nil {
+	if e := json.Unmarshal(data, &state); e != nil {
 		return e
 	}
 	if state.Version != 1 || state.Topic != c.topic || state.KB != c.kb || state.Index < 0 || state.Index > len(c.questions) {

@@ -1,6 +1,6 @@
 # LanAgent 个人 Harness
 
-个人入口复用 `internal/harness` 的模型—工具循环，面向工作目录任务、Go 后端学习与代码练习。逐题模拟面试使用同一执行核心，由 `cmd/interview` 管理题目与复习状态。
+个人入口复用 `internal/harness` 的模型—工具循环，面向工作目录任务、Go 后端学习与代码练习。面试训练通过 `interview_start/status/next/submit_answer` 与 `review_list` 接入同一对话；`cmd/interview` 只保留启动别名。
 
 ## 启动
 
@@ -26,6 +26,7 @@ go run ./cmd/harness -workspace . -session YOUR_SESSION_ID -resume
 | 命令 | 行为 |
 | --- | --- |
 | `/exit` | 退出，保留已保存状态 |
+| `/paste` | 多行输入，以单独一行 `/submit` 提交 |
 | `/status` | 显示未完成运行的阶段及不确定执行 ID |
 | `/resume` | 继续当前任务，不重新发送用户任务 |
 | `/resolve execution_id 人工核对结果` | 将已观察到的真实结果写入对应工具观察；不执行工具 |
@@ -68,6 +69,7 @@ MCP 进程和服务具有其自身权限，不是 Docker 沙箱；显式配置 M
 | `<id>.json` | 已完成轮次及最后提交的 run ID |
 | `<id>.pending.json` | 未完成图阶段、消息、剩余调用、累计预算、执行 ID 和最终响应 |
 | `<id>.jsonl` | 同步写入的运行事件与原始工具结果 |
+| `<id>.interview.json` | 同一对话中的训练进度、真实答案与工具回执 |
 | `<id>.lock` | OS advisory lock 的载体；进程退出自动释放，文件保留 |
 
 在模型决策、工具执行前和工具结果完成后保存检查点。已完成工具结果先持久化再发送 UI 事件，UI 断开不导致工具重放。执行 ID 在同一运行/轮次/调用间稳定；执行前记录“正在执行”，结果和剩余批次一起落盘。若这两个时点之间中断，恢复停止并要求核对；不会猜测工具是否执行成功。
@@ -85,3 +87,5 @@ PRACTICE_DOCKER_TEST=1 go test ./cmd/harness -run '^TestPersonalExerciseDockerPa
 ```
 
 覆盖版本冲突、路径逃逸、Skills 元数据/正文分离、真实 SDK 内存连接的 MCP 白名单与参数校验、模型摘要降级、持久结果不重放、不确定执行人工核对，以及面试追问/续接。CLI 集成使用本机模型替身；Docker 用真实镜像验证代码哈希与测试结果。
+
+启用 `configs/interview` 时自动提供内置面试 Skill 和状态工具。用户可在提问、讲解、检索和面试之间自然切换；进度由工具保存，不依赖模型记住题号。恢复仍需原配置与工具权限，详细行为见[统一面试训练](knowledge-and-interview.md)。

@@ -19,32 +19,42 @@ type Skill struct {
 	Description string `json:"description"`
 	Path        string `json:"path"`
 }
+type BuiltinSkill struct{ Name, Description, Body string }
+
 type skillTool struct {
+	bodies map[string]string
 	w      *Workspace
 	skills map[string]Skill
 }
 
 // RegisterSkills exposes metadata eagerly; full instructions are exposed only by
 // load_skill. Paths stay under the workspace root, even through symlinks.
-func (w *Workspace) RegisterSkills(r *tool.Registry) (string, error) {
+func (w *Workspace) RegisterSkills(r *tool.Registry, builtins ...BuiltinSkill) (string, error) {
 	const dir = ".lanagent/skills"
+	var entries []fs.DirEntry
 	f, e := w.root.Open(dir)
-	if errors.Is(e, fs.ErrNotExist) {
-		return "", nil
-	}
-	if e != nil {
+	if e != nil && !errors.Is(e, fs.ErrNotExist) {
 		return "", e
 	}
-	defer f.Close()
-	entries, e := f.ReadDir(65)
-	if e != nil && e != io.EOF {
-		return "", e
+	if e == nil {
+		defer f.Close()
+		entries, e = f.ReadDir(65)
+		if e != nil && e != io.EOF {
+			return "", e
+		}
 	}
 	if len(entries) > 64 {
 		return "", errors.New("too many skill directories (maximum 64)")
 	}
 	catalog := []Skill{}
-	t := skillTool{w: w, skills: map[string]Skill{}}
+	t := skillTool{w: w, skills: map[string]Skill{}, bodies: map[string]string{}}
+	for _, builtin := range builtins {
+		if builtin.Name == "" || len(builtin.Body) > 32<<10 {
+			return "", errors.New("invalid bundled skill")
+		}
+		t.skills[builtin.Name] = Skill{Name: builtin.Name, Description: builtin.Description, Path: "builtin:" + builtin.Name}
+		t.bodies[builtin.Name] = builtin.Body
+	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -70,8 +80,11 @@ func (w *Workspace) RegisterSkills(r *tool.Registry) (string, error) {
 			return "", errors.New("skill name must match directory and have a bounded description")
 		}
 		skill := Skill{Name: meta.Name, Description: meta.Description, Path: path}
-		catalog = append(catalog, skill)
 		t.skills[meta.Name] = skill
+		delete(t.bodies, meta.Name)
+	}
+	for _, s := range t.skills {
+		catalog = append(catalog, s)
 	}
 	if len(catalog) == 0 {
 		return "", nil
@@ -134,6 +147,9 @@ func (t skillTool) Execute(ctx context.Context, raw string) (string, error) {
 	s, ok := t.skills[in.Name]
 	if !ok {
 		return "", errors.New("unknown skill")
+	}
+	if body, ok := t.bodies[in.Name]; ok {
+		return body, nil
 	}
 	return t.w.readSkill(s.Path)
 }

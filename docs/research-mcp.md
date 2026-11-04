@@ -8,7 +8,7 @@
 
 功能包括：来源白名单、正文工件、每页至多 2 KiB 的 UTF-8 分页（完整 JSON 不超过 3500 字节，避免再次被上下文预览裁掉）、内容哈希检查、候选去重与分块、按确切 manifest 入库、持久任务、执行 ID 与参数绑定的操作记录、关闭/重启续接，以及 Harness 的主机核对入口。普通工具错误不会包含供应商原始响应体或索引器私密错误。
 
-当前文档与题目训练仍使用已有入口。GitHub/Context7、批量 crawl、训练状态工具化、PDF 和 profile 分析按[整体设计](tooling-design.md)的后续阶段推进，未声称全部 31 项已完成。
+面试进度、答题与复习工具现已接入统一 Harness 对话，详见[统一面试训练](knowledge-and-interview.md)。研究 MCP 保持独立工具提供方；GitHub/Context7、批量 crawl、PDF 和 profile 分析仍按[整体设计](tooling-design.md)后续推进。
 
 ## 本机运行
 

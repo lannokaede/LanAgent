@@ -120,3 +120,18 @@ func TestSessionRejectsUnpairedToolHistory(t *testing.T) {
 		}
 	}
 }
+
+func TestBoundUserInputReferencesDistinguishTurnsAndSurviveResume(t *testing.T) {
+	s := &Session{ID: "conversation"}
+	first, _ := s.BoundInput("相同答案")
+	s.state.LastRun = "completed-run"
+	second, text := s.BoundInput("相同答案")
+	if first == second || text != "相同答案" {
+		t.Fatal("input refs collapsed across turns")
+	}
+	s.pending = &harness.Checkpoint{Messages: []llm.Message{{Role: llm.RoleUser, Content: "相同答案"}, {Role: llm.RoleTool, Content: "tool text"}}}
+	resumed, original := s.BoundInput("/resume")
+	if resumed != second || original != text {
+		t.Fatal("resume lost original host input")
+	}
+}

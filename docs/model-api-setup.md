@@ -68,7 +68,8 @@ go run ./cmd/setup -kind embedding -check
 
 ```bash
 go run ./cmd/harness -workspace .
-go run ./cmd/interview -topic concurrency -questions 3
+go run ./cmd/harness -config configs/interview -workspace .
+# 在同一对话中输入：开始3题并发面试；不懂先讲解；继续面试
 go run ./cmd/knowledge search -config configs/interview -query 'Go context cancellation'
 ```
 

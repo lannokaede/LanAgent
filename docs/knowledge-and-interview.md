@@ -15,19 +15,35 @@ go run ./cmd/knowledge search -config configs/interview -query 'Go channel synch
 
 采集目录应是新的目录；既有导入可重跑，已完成的同版本文档会跳过。部分导入失败会报告错误，不把它算作整库成功。知识库服务由使用者单独部署，库中数据不随源码发布。
 
-## 一问一答与续接
+## 同一对话中的面试与续接
 
 ```bash
-go run ./cmd/interview -topic concurrency -questions 3
-go run ./cmd/interview -topic concurrency -session .runtime/interviews/SESSION.json
-go run ./cmd/interview -topic concurrency -followups=false
+go run ./cmd/harness -config configs/interview -workspace .
+# 继续同一对话，包括待答题和复习记录
+go run ./cmd/harness -config configs/interview -workspace . -session SESSION_ID
 ```
 
-主题包括 `all`、`go`、`concurrency`、`runtime`、`database`、`redis`、`engineering`。回答以 `/submit` 提交，`/exit` 退出。每次展示一道题，提交后结合真实检索结果给出反馈；参考答案由程序维护。基础题低分且模型提出追问时最多追问一次，使用同一知识主题和参考要点，随后继续下一基础题。
+自然语言示例：“开始 3 题 Go 并发面试”→“不懂，先讲一下”→“继续面试”→输入答案→“总结薄弱点”。模型根据提示词和上下文选择已注册工具，不另起固定面试程序。知识库配置只决定资源是否可用；同一进程内可以阅读文件、检索、使用 MCP 和代码验证。
 
-JSON 程序校验分数、维度和来源索引；最近三轮历史参与点评。反馈仅为练习参考，来源序号合法不等于已经证明其内容支持所有判断。
+内置 `go-interview` Skill 在启用 RAG 时自动提供元数据，通过 `load_skill` 按需加载完整步骤。工作目录有同名 Skill 时以本地版本为准；Skill 不改变工具权限。
 
-状态文件保留题目位置、待答证据、追问和历史，展示题目前与作答后保存。相同状态文件通过 OS 锁避免并发覆盖。`*.jsonl` 记录完成问答，`*-review.md` 收集薄弱题、反馈、参考答案和资料来源。恢复时主题与知识库配置须匹配原会话。
+| 工具 | 作用 |
+| --- | --- |
+| `interview_start(topic, questions?)` | 开始或恢复该主题的训练；切换主题时保留原训练 |
+| `interview_status()` | 读取待答题、完成数及主机绑定的当前 input_ref |
+| `interview_next()` | 返回同一待答题；没有待答题时检索证据并提出下一题 |
+| `interview_submit_answer(question_id, input_ref)` | 点评主机保存的当前用户原文，原子保存结果与进度 |
+| `review_list()` | 读取本段对话中已保存的薄弱点 |
+
+主题包括 `all`、`go`、`concurrency`、`runtime`、`database`、`redis`、`engineering`。题数默认 5，范围 1–16，按已完成答题轮次计数，追问也占一次。基础题低分且模型提出追问时最多追问一次；参考要点由程序维护，反馈 JSON 校验分数、维度和来源索引。
+
+正常回答直接输入。多行内容使用 `/paste`，以单独一行 `/submit` 结束；点评使用整段原始输入。模型只传题目和输入引用，不能传一段自己生成的答案冒充用户。刚提出题目的同一用户轮次不能立即提交答案；重复提交同一输入不会重复点评或推进。
+
+讲解、查询、文件操作不会自行修改面试进度。是否评分和何时继续由模型根据用户意图选择工具，程序负责状态一致性，不做关键词硬切换。意图理解属于模型行为，仍可能判断错误；可以要求它保留题目并继续讲解。
+
+统一会话目录包含 `SESSION_ID.json`、`SESSION_ID.pending.json`、`SESSION_ID.jsonl` 与 `SESSION_ID.interview.json`。最后一个文件保存该对话的训练主题、待答证据、历史和操作回执，由同一会话锁保护。短期模型上下文摘要不会替代这些真实记录。面试状态和操作结果一起原子保存，核对时可复用已提交结果；`-reconcile` 支持本地面试操作与已有研究 MCP 操作，缺少回执时保留人工 `/resolve`。
+
+兼容命令 `go run ./cmd/interview -topic concurrency -questions 3` 会把初始请求交给统一 CLI。旧的独立 `.runtime/interviews/*.json` 不会自动导入，也不会删除；新的 `-session` 传统一会话 ID。原来独立程序的 `/submit`、`-log-dir`、`-followups` 使用方式由上述统一交互替代。
 
 ## 自由学习与代码验证
 
