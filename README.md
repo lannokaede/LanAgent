@@ -46,6 +46,23 @@ go run ./cmd/harness -workspace . -prompt '读取 README.md，说明项目结构
 
 默认轻量配置仅需要聊天模型。也可继续使用 `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY` 环境变量；`.env.example` 仅是示例，不自动加载。
 
+### 交互启动与会话选择
+
+```bash
+# 在终端直接启动菜单
+go run ./cmd/harness
+# 显式进入菜单；也可指定自己的会话目录
+go run ./cmd/harness -menu
+```
+
+菜单提供“新建对话 / 选择历史会话 / 启动设置”。历史列表按更新时间排序，显示首条消息标题、工作目录和已保存/未完成/需核对状态；输入序号选择，`n/p` 翻页，`/关键词` 搜索。会话退出后返回菜单，`0` 退出程序。
+
+启动设置可以选择轻量资源或知识/面试资源、自定义工作目录、切换文件写入与固定诊断权限、填写 MCP 配置、绑定代码题和调整任务期限。每个会话保存自己的启动配置，选中后先展示权限与 MCP 设置，再继续或恢复；新启动的默认菜单会沿用最近会话设置。配置文件中的 Key 与 Token 不复制进会话启动记录。
+
+聊天时输入 `/menu` 或 `/sessions` 可回到会话管理；`/help` 查看交互命令。已有会话切换时先释放原会话锁。旧会话缺少启动记录时可手动补齐原配置；不确定操作仍走核对流程。
+
+带显式参数或管道输入时保持普通命令行为，脚本可继续使用：
+
 ```bash
 # 交互模式；按需开启写入和固定诊断命令
 go run ./cmd/harness -workspace . -allow-write -allow-commands
@@ -57,7 +74,7 @@ go run ./cmd/harness -workspace . -session SESSION_ID -resume
 go run ./cmd/harness -workspace . -mcp-config examples/harness/mcp.example.json
 ```
 
-交互命令包括 `/exit`、`/paste`、`/status`、`/resume`、`/resolve`、`/discard`。文件写入需提供当前文件 SHA-256；固定诊断命令支持 Go 版本、Git 状态和差异。Skills 放在 `.lanagent/skills/<name>/SKILL.md`，启动时只向模型披露元数据，相关时调用 `load_skill` 读取正文。
+交互命令包括 `/menu`、`/sessions`、`/help`、`/exit`、`/paste`、`/status`、`/resume`、`/resolve`、`/discard`。文件写入需提供当前文件 SHA-256；固定诊断命令支持 Go 版本、Git 状态和差异。Skills 放在 `.lanagent/skills/<name>/SKILL.md`，启动时只向模型披露元数据，相关时调用 `load_skill` 读取正文。
 
 完整权限、预算、摘要和恢复语义见 [Harness 使用说明](docs/personal-harness.md)。
 

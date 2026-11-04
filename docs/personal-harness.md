@@ -7,6 +7,8 @@
 在仓库根目录运行。首次可执行 `go run ./cmd/setup`，填写或粘贴 API 配置，各入口共享读取；也可使用 `configs/harness` 或 `configs/interview` 本地覆盖配置，或设置 `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`。密钥不写入示例文件。
 
 ```bash
+go run ./cmd/harness              # 终端自动显示启动菜单
+go run ./cmd/harness -menu        # 显式菜单，可选择历史会话
 go run ./cmd/harness -workspace . -prompt "读取 README.md 并说明项目结构"
 go run ./cmd/harness -config configs/interview -workspace .
 # 显式打开文件写入和固定诊断命令
@@ -25,7 +27,9 @@ go run ./cmd/harness -workspace . -session YOUR_SESSION_ID -resume
 
 | 命令 | 行为 |
 | --- | --- |
-| `/exit` | 退出，保留已保存状态 |
+| `/menu`、`/sessions` | 释放当前会话锁并进入会话管理 |
+| `/help` | 显示交互命令 |
+| `/exit` | 保留状态并结束对话；菜单启动时返回菜单 |
 | `/paste` | 多行输入，以单独一行 `/submit` 提交 |
 | `/status` | 显示未完成运行的阶段及不确定执行 ID |
 | `/resume` | 继续当前任务，不重新发送用户任务 |
@@ -69,6 +73,7 @@ MCP 进程和服务具有其自身权限，不是 Docker 沙箱；显式配置 M
 | `<id>.json` | 已完成轮次及最后提交的 run ID |
 | `<id>.pending.json` | 未完成图阶段、消息、剩余调用、累计预算、执行 ID 和最终响应 |
 | `<id>.jsonl` | 同步写入的运行事件与原始工具结果 |
+| `<id>.launch.json` | 工作目录、资源配置、权限、MCP 路径和任务参数；不含凭据 |
 | `<id>.interview.json` | 同一对话中的训练进度、真实答案与工具回执 |
 | `<id>.lock` | OS advisory lock 的载体；进程退出自动释放，文件保留 |
 
@@ -89,3 +94,9 @@ PRACTICE_DOCKER_TEST=1 go test ./cmd/harness -run '^TestPersonalExerciseDockerPa
 覆盖版本冲突、路径逃逸、Skills 元数据/正文分离、真实 SDK 内存连接的 MCP 白名单与参数校验、模型摘要降级、持久结果不重放、不确定执行人工核对，以及面试追问/续接。CLI 集成使用本机模型替身；Docker 用真实镜像验证代码哈希与测试结果。
 
 启用 `configs/interview` 时自动提供内置面试 Skill 和状态工具。用户可在提问、讲解、检索和面试之间自然切换；进度由工具保存，不依赖模型记住题号。恢复仍需原配置与工具权限，详细行为见[统一面试训练](knowledge-and-interview.md)。
+
+## 启动菜单
+
+菜单支持新建、按序号选择历史会话、按标题/目录/ID 搜索、十条一页翻页，以及编辑启动设置。工作目录与资源配置分开选择，权限开关在启动前显示；MCP 只记配置文件路径，Token 继续从原环境读取。历史中的“未完成”会话使用保存的启动参数恢复，“需核对”先查操作回执；查不到时保留 pending，不自动重做。
+
+终端无参数启动自动显示菜单，`-menu` 可显式开启。已有脚本与管道输入不自动弹菜单；命令参数继续有效。菜单不会部署 MCP、创建知识索引或替用户填写凭据；选择的资源仍需已配置可用。

@@ -25,7 +25,7 @@ import (
 	"github.com/lannokaede/LanAgent/internal/workspace"
 )
 
-func Run(ctx context.Context, args []string, in io.Reader, out, status io.Writer) error {
+func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Writer) error {
 	flags := flag.NewFlagSet("harness", flag.ContinueOnError)
 	flags.SetOutput(status)
 	configDir := flags.String("config", "configs/harness", "模型配置目录")
@@ -134,6 +134,7 @@ func Run(ctx context.Context, args []string, in io.Reader, out, status io.Writer
 		return err
 	}
 	defer session.Close()
+
 	var training *interview.Tools
 	if interviewSearch != nil {
 		binding := w.Path() + "|" + cfg.RAG.MilvusURL + "|" + cfg.RAG.Collection + "|" + cfg.RAG.KnowledgeBase + "|" + cfg.Embedding.BaseURL + "|" + cfg.Embedding.Model + fmt.Sprint(cfg.Embedding.Dimensions)
@@ -195,8 +196,16 @@ func Run(ctx context.Context, args []string, in io.Reader, out, status io.Writer
 		_, e = fmt.Fprintln(status, "已从持久操作记录核对原任务，可使用相同配置 -resume；未重新提交入库。")
 		return e
 	}
+	if cp := session.Pending(); cp == nil || cp.Profile == runner.ProfileID() {
+		if err = session.SaveLaunch(absoluteLaunch(personal.Launch{Config: *configDir, Workspace: w.Path(), MCP: *mcpConfig, Exercise: *exercise, Write: *allowWrite, Commands: *allowCommands, Summary: *summary, Rounds: *rounds, Timeout: *timeout})); err != nil {
+			return err
+		}
+	}
 	if _, err := fmt.Fprintf(status, "LanAgent Harness · workspace: %s\nsession: %s\n", w.Path(), session.ID); err != nil {
 		return err
+	}
+	if *prompt == "" && !*resume {
+		fmt.Fprintln(status, "/menu 会话管理 · /help 帮助 · /paste 多行输入 · /exit 结束对话")
 	}
 	if *resume {
 		*prompt = "/resume"
@@ -250,6 +259,13 @@ func sessionLoop(ctx context.Context, session *personal.Session, runner *harness
 		}
 		input := scanner.Text()
 		command := strings.TrimSpace(input)
+		if command == "/menu" || command == "/sessions" {
+			return errMenu
+		}
+		if command == "/help" {
+			fmt.Fprintln(status, "/menu 会话菜单 · /sessions 选择会话 · /status 未完成任务 · /resume 恢复 · /paste 多行输入 · /exit 退出对话")
+			continue
+		}
 		if command == "/exit" {
 			return nil
 		}
