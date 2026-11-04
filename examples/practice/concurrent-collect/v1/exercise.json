@@ -1,0 +1,7 @@
+{
+  "id": "concurrent-collect",
+  "version": "v1",
+  "title": "并发结果收集",
+  "description": "实现 Collect：并发将每个输入乘二，按输入顺序返回全部结果，不修改输入，不产生数据竞争；ctx 已取消时返回 ctx.Err()，处理中取消也必须结束。空输入返回空结果。",
+  "signature": "func Collect(ctx context.Context, values []int) ([]int, error)"
+}

@@ -1,0 +1,10 @@
+{
+  "servers": [
+    {
+      "name": "local-knowledge",
+      "url": "http://127.0.0.1:8080/mcp",
+      "token_env": "LANAGENT_MCP_TOKEN",
+      "tools": ["knowledge_search"]
+    }
+  ]
+}

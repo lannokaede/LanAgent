@@ -1,0 +1,7 @@
+{
+  "id": "worker-exit",
+  "version": "v1",
+  "title": "goroutine 退出",
+  "description": "实现 Worker：异步接收 in 的整数并原样转发到返回通道。输入关闭或 ctx 取消时退出并关闭输出；接收和发送都要响应取消。",
+  "signature": "func Worker(ctx context.Context, in <-chan int) <-chan int"
+}

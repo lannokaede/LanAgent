@@ -1,0 +1,3 @@
+package exercise
+import("context";"sync")
+func Collect(ctx context.Context,values []int)([]int,error){out:=[]int{};var wg sync.WaitGroup;for _,v:=range values{wg.Add(1);go func(n int){defer wg.Done();out=append(out,n*2)}(v)};wg.Wait();return out,nil}

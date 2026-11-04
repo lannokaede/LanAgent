@@ -1,0 +1,3 @@
+package exercise
+import "context"
+func Worker(ctx context.Context,in <-chan int)<-chan int{out:=make(chan int);go func(){defer close(out);for n:=range in{out<-n}}();return out}

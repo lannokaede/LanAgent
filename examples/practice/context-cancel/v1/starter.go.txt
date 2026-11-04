@@ -1,0 +1,3 @@
+package exercise
+import("context";"time")
+func Wait(ctx context.Context, delay time.Duration)(string,error){time.Sleep(delay);return "ok",nil}

@@ -1,0 +1,7 @@
+package exercise
+import("context";"testing";"time";"errors")
+func TestNormal(t *testing.T){v,e:=Wait(context.Background(),time.Millisecond);if e!=nil||v!="ok"{t.Fatalf("normal: %q %v",v,e)}}
+func TestCancelled(t *testing.T){ctx,c:=context.WithCancel(context.Background());c();_,e:=Wait(ctx,time.Millisecond);if !errors.Is(e,context.Canceled){t.Fatalf("want context.Canceled, got %v",e)}}
+func TestPromptExit(t *testing.T){ctx,c:=context.WithCancel(context.Background());defer c();done:=make(chan error,1);go func(){_,e:=Wait(ctx,time.Second);done<-e}();c();select{case e:=<-done:if !errors.Is(e,context.Canceled){t.Fatal(e)};case <-time.After(300*time.Millisecond):t.Fatal("cancellation not propagated")}}
+func TestDeadline(t *testing.T){ctx,c:=context.WithTimeout(context.Background(),10*time.Millisecond);defer c();_,e:=Wait(ctx,50*time.Millisecond);if !errors.Is(e,context.DeadlineExceeded){t.Fatal(e)}}
+func TestZeroDelay(t *testing.T){v,e:=Wait(context.Background(),0);if e!=nil||v!="ok"{t.Fatalf("%q %v",v,e)}}

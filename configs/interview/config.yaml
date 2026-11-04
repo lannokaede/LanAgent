@@ -1,0 +1,25 @@
+# Personal Go backend interview profile. Secrets go in config.local.yaml or env.
+llm:
+  base_url: ""
+  model: ""
+  timeout: 60s
+  concurrency: 1
+embedding:
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  model: "text-embedding-v4"
+  dimensions: 1024
+rag:
+  enabled: true
+  milvus_url: "http://127.0.0.1:19530"
+  collection: "lanagent_go_interview_v1"
+  knowledge_base: "go-backend-interview"
+practice:
+  image: "lanagent/practice-go:1.26.9-v1"
+  work_dir: ".runtime/practice"
+telemetry:
+  enabled: false
+context:
+  window: 32768
+  output_reserve: 4096
+  tool_reserve: 2048
+  summary_tokens: 512

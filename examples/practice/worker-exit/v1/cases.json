@@ -1,0 +1,27 @@
+[
+  {
+    "name": "starter",
+    "file": "starter.go.txt",
+    "expected": "failed"
+  },
+  {
+    "name": "correct",
+    "file": "correct.go.txt",
+    "expected": "passed"
+  },
+  {
+    "name": "syntax-error",
+    "file": "syntax-error.go.txt",
+    "expected": "compile_failed"
+  },
+  {
+    "name": "wrong-contract",
+    "file": "wrong-contract.go.txt",
+    "expected": "compile_failed"
+  },
+  {
+    "name": "boundary-error",
+    "file": "boundary-error.go.txt",
+    "expected": "failed"
+  }
+]

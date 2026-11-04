@@ -1,0 +1,8 @@
+package exercise
+import("context";"testing";"time")
+func expectClosed(t *testing.T,out <-chan int){t.Helper();select{case _,ok:=<-out:if ok{t.Fatal("expected closed output")};case <-time.After(300*time.Millisecond):t.Fatal("worker did not exit")}}
+func TestTransfer(t *testing.T){in:=make(chan int,2);in<-2;in<-3;close(in);out:=Worker(context.Background(),in);for _,want:=range []int{2,3}{select{case got:=<-out:if got!=want{t.Fatalf("%d != %d",got,want)};case <-time.After(time.Second):t.Fatal("no result")}};expectClosed(t,out)}
+func TestClosedInput(t *testing.T){in:=make(chan int);close(in);expectClosed(t,Worker(context.Background(),in))}
+func TestReceiveCancellation(t *testing.T){ctx,c:=context.WithCancel(context.Background());out:=Worker(ctx,make(chan int));c();expectClosed(t,out)}
+func TestSendCancellation(t *testing.T){ctx,c:=context.WithCancel(context.Background());in:=make(chan int);out:=Worker(ctx,in);select{case in<-1:case <-time.After(time.Second):t.Fatal("worker not receiving")};c();select{case <-out:case <-time.After(time.Second):t.Fatal("blocked output")};expectClosed(t,out)}
+func TestAlreadyCancelled(t *testing.T){ctx,c:=context.WithCancel(context.Background());c();expectClosed(t,Worker(ctx,make(chan int)))}

@@ -1,0 +1,19 @@
+# Personal CLI profile; no application database or background workers.
+# Configure LLM_BASE_URL, LLM_MODEL, LLM_API_KEY in the environment or config.local.yaml.
+llm:
+  base_url: ""
+  model: ""
+  timeout: 45s
+  concurrency: 1
+practice:
+  image: "lanagent/practice-go:1.26.9-v1"
+  work_dir: ".runtime/practice"
+rag:
+  enabled: false
+telemetry:
+  enabled: false
+context:
+  window: 32768
+  output_reserve: 4096
+  tool_reserve: 2048
+  summary_tokens: 512

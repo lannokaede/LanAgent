@@ -1,0 +1,7 @@
+package exercise
+import "context"
+func Worker(ctx context.Context,in <-chan int)<-chan int{
+ out:=make(chan int)
+ go func(){defer close(out);for{select{case <-ctx.Done():return;case n,ok:=<-in:if !ok{return};select{case <-ctx.Done():return;case out<-n:}}}}()
+ return out
+}

@@ -1,0 +1,7 @@
+package exercise
+import("context";"testing";"errors")
+func TestOrdered(t *testing.T){out,e:=Collect(context.Background(),[]int{3,1,2});if e!=nil||len(out)!=3{t.Fatalf("%v %v",out,e)};for i,w:=range []int{6,2,4}{if out[i]!=w{t.Fatalf("out[%d]=%d want %d",i,out[i],w)}}}
+func TestEmpty(t *testing.T){out,e:=Collect(context.Background(),nil);if e!=nil||len(out)!=0{t.Fatalf("%v %v",out,e)}}
+func TestCancelled(t *testing.T){ctx,c:=context.WithCancel(context.Background());c();_,e:=Collect(ctx,[]int{1});if !errors.Is(e,context.Canceled){t.Fatal(e)}}
+func TestConcurrent(t *testing.T){values:=make([]int,2000);for i:=range values{values[i]=i};for n:=0;n<3;n++{out,e:=Collect(context.Background(),values);if e!=nil||len(out)!=len(values){t.Fatalf("incomplete result: %d %v",len(out),e)};for i,v:=range out{if v!=i*2{t.Fatalf("result at %d: %d",i,v)}}}}
+func TestInputUnchanged(t *testing.T){in:=[]int{5,-2,0};_,e:=Collect(context.Background(),in);if e!=nil||in[0]!=5||in[1]!=-2||in[2]!=0{t.Fatalf("%v %v",in,e)}}

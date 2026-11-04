@@ -1,0 +1,7 @@
+{
+  "id": "context-cancel",
+  "version": "v1",
+  "title": "Context 取消传播",
+  "description": "实现 Wait：等待 delay 后返回 \"ok\"；ctx 取消时立即返回 ctx.Err()。负数 delay 按零处理。",
+  "signature": "func Wait(ctx context.Context, delay time.Duration) (string, error)"
+}
