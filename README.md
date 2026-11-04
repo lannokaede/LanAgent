@@ -109,3 +109,7 @@ PRACTICE_DOCKER_TEST=1 go test ./cmd/harness -run '^TestPersonalExerciseDockerPa
 ## 来源
 
 项目早期学习结构参考 [nexus-agent](https://github.com/chengpeng-cp/nexus-agent)，后续聚焦个人 Harness 和 Go 面试训练。运行编排使用 [LangGraphGo](https://github.com/smallnest/langgraphgo)，模型适配使用 LangChainGo，MCP 使用官方 Go SDK。来源记录见 [NOTICE.md](NOTICE.md)。
+
+## 资料研究 MCP
+
+同库提供可独立构建的 `cmd/research-mcp`，包含资料抓取、工件读取、候选准备、知识入库与持久任务。默认官方文档模式不需要爬虫账号；联网搜索可接 Firecrawl，正式入库需显式开启。见[运行与部署](docs/research-mcp.md)及[工具设计](docs/tooling-design.md)。

@@ -1,0 +1,11 @@
+.git
+.runtime
+**/.runtime
+.env
+.env.*
+**/config.local.yaml
+**/*.local.json
+**/*.local.yaml
+**/*.jsonl
+bin
+dist

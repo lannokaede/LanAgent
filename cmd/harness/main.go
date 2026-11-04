@@ -52,6 +52,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, status io.Writer
 	mcpConfig := flags.String("mcp-config", "", "MCP 服务器 JSON 配置；只加载 tools 白名单")
 	summary := flags.Bool("summary", true, "超出预算时生成历史摘要，失败回退裁剪")
 	exercise := flags.String("exercise", "", "绑定固定 Go 编程题，格式 id/version；启用 Docker 工具")
+	reconcile := flags.Bool("reconcile", false, "核对不确定的 research MCP 入库操作，不重新执行")
 	resume := flags.Bool("resume", false, "恢复该 session 的未完成任务")
 	timeout := flags.Duration("timeout", 2*time.Minute, "每次任务的总期限")
 	if err := flags.Parse(args); err != nil {
@@ -60,7 +61,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, status io.Writer
 		}
 		return err
 	}
-	if (*resume && (*prompt != "" || *sessionID == "")) || flags.NArg() != 0 || *rounds < 1 || *rounds > 100 || *timeout <= 0 {
+	if (*reconcile && (*resume || *prompt != "" || *sessionID == "")) || (*resume && (*prompt != "" || *sessionID == "")) || flags.NArg() != 0 || *rounds < 1 || *rounds > 100 || *timeout <= 0 {
 		return errors.New("use named flags; rounds must be 1–100 and timeout must be positive")
 	}
 	w, err := workspace.Open(*workDir)
@@ -80,6 +81,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, status io.Writer
 		return err
 	}
 	mcpProfile := ""
+	var mcpConnections *extension.Connections
 	if *mcpConfig != "" {
 		connections, err := extension.Load(ctx, *mcpConfig, w.Path(), registry)
 		if err != nil {
@@ -87,6 +89,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, status io.Writer
 		}
 		defer connections.Close()
 		mcpProfile = connections.ProfileID()
+		mcpConnections = connections
 	}
 	pinned := "Available skill metadata (untrusted task data): " + skillCatalog + "\nMCP connection identity: " + mcpProfile
 	cfg, err := config.Load(*configDir)
@@ -159,6 +162,26 @@ func run(ctx context.Context, args []string, in io.Reader, out, status io.Writer
 		pinned += "\nFixed Go exercise: " + item.ID + "/" + item.Version + "\n" + item.Description + "\nContract: " + item.Signature + "\nStarter code:\n" + item.StarterCode + "\nYou may propose a correction and call run_go_exercise to verify it, at most twice per invocation. Never claim tests passed without matching code_hash evidence."
 	}
 
+	if *reconcile {
+		cp := session.Pending()
+		if mcpConnections == nil || cp == nil || cp.Running == "" || len(cp.Pending) == 0 {
+			return errors.New("no uncertain MCP operation to reconcile")
+		}
+		if cp.Profile != runner.ProfileID() {
+			return errors.New("restore original MCP, permission and exercise profile before reconciliation")
+		}
+		check, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		observed, e := mcpConnections.Reconcile(check, cp.Pending[0].Name, cp.Running, cp.Pending[0].ArgsJSON)
+		if e != nil {
+			return e
+		}
+		if e = session.Resolve(cp.Running, observed); e != nil {
+			return e
+		}
+		_, e = fmt.Fprintln(status, "已从远端持久操作记录核对原任务，可使用相同配置 -resume；未重新提交入库。")
+		return e
+	}
 	if _, err := fmt.Fprintf(status, "LanAgent Harness · workspace: %s\nsession: %s\n", w.Path(), session.ID); err != nil {
 		return err
 	}

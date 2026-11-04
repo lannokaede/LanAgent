@@ -1,0 +1,31 @@
+name: Build research MCP
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'research-v*'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build standalone Linux binary
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+        run: go build -trimpath -o dist/lanagent-research-mcp ./cmd/research-mcp
+      - run: cp -R configs dist/configs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lanagent-research-mcp-linux-${{ matrix.arch }}
+          path: dist/

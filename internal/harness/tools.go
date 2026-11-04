@@ -73,7 +73,7 @@ func (r *Runner) executeTool(ctx context.Context, state *runState, call llm.Tool
 		if r.tools.Timeout > 0 {
 			callCtx, cancel = context.WithTimeout(ctx, r.tools.Timeout)
 		}
-		result, err := registeredTool.Execute(callCtx, call.ArgsJSON)
+		result, err := registeredTool.Execute(tool.WithExecutionID(callCtx, state.executionID(call)), call.ArgsJSON)
 		if callCtx.Err() != nil {
 			err = errors.Join(err, callCtx.Err())
 		}

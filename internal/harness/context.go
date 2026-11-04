@@ -101,7 +101,7 @@ func compactObservation(raw string) string {
 	var value map[string]any
 	if json.Unmarshal([]byte(raw), &value) == nil && value != nil {
 		preview := map[string]any{"_context_truncated": true, "_notice": "Full result retained in durable session; preview is incomplete."}
-		for _, key := range []string{"code_hash", "status", "exit_code", "error", "truncated", "command", "path", "sha256", "written", "unchanged", "next_offset"} {
+		for _, key := range []string{"code_hash", "status", "exit_code", "error", "truncated", "command", "path", "sha256", "written", "unchanged", "next_offset", "artifact_id", "source_id", "document_id", "revision_id", "candidate_id", "manifest_hash", "job_id", "execution_id"} {
 			if v, ok := value[key]; ok {
 				switch item := v.(type) {
 				case string:

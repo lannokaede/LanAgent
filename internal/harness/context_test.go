@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -67,5 +68,13 @@ func TestVerboseTestOutputKeepsVerificationMetadata(t *testing.T) {
 	compact := compactObservation(raw)
 	if len(compact) > 4096 || !strings.Contains(compact, `"status":"passed"`) || !strings.Contains(compact, `"code_hash":"abc123"`) {
 		t.Fatal("lost verification metadata")
+	}
+}
+
+func TestArtifactHandlesSurviveObservationCompaction(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{"artifact_id": "artifact-handle", "next_offset": 2048, "truncated": true, "content": strings.Repeat("page", 3000)})
+	var compact map[string]any
+	if json.Unmarshal([]byte(compactObservation(string(raw))), &compact) != nil || compact["artifact_id"] != "artifact-handle" || compact["next_offset"] != float64(2048) {
+		t.Fatal("artifact continuation lost", compact)
 	}
 }

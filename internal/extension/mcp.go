@@ -29,6 +29,7 @@ type Server struct {
 	Tools    []string `json:"tools"`
 }
 type Connections struct {
+	remote   map[string]remoteTool
 	sessions []*mcp.ClientSession
 	identity string
 }
@@ -61,7 +62,7 @@ func Load(ctx context.Context, path, workspace string, r *tool.Registry) (connec
 	if d.Decode(&extra) != io.EOF {
 		return nil, errors.New("invalid MCP config")
 	}
-	c := &Connections{}
+	c := &Connections{remote: map[string]remoteTool{}}
 	defer func() {
 		if err != nil {
 			c.Close()
@@ -94,6 +95,10 @@ func Load(ctx context.Context, path, workspace string, r *tool.Registry) (connec
 		c.sessions = append(c.sessions, session)
 		if e = Register(ctx, r, session, server.Name, server.Tools); e != nil {
 			return nil, e
+		}
+		for _, name := range server.Tools {
+			h := sha256.Sum256([]byte(server.Name + "/" + name))
+			c.remote[fmt.Sprintf("mcp_%x", h[:10])] = remoteTool{session, name}
 		}
 	}
 	identities := []any{cfg.Servers}
@@ -155,7 +160,22 @@ func Register(ctx context.Context, r *tool.Registry, session *mcp.ClientSession,
 		}
 		sum := sha256.Sum256([]byte(server + "/" + remote.Name))
 		name := fmt.Sprintf("mcp_%x", sum[:10])
-		adapter := mcpTool{session: session, remote: remote.Name, schema: resolved, spec: llm.ToolDef{Name: name, Description: "MCP " + server + "/" + remote.Name + ": " + remote.Description, Parameters: params}}
+		var outputSchema *jsonschema.Resolved
+		if remote.OutputSchema != nil {
+			encoded, err := json.Marshal(remote.OutputSchema)
+			if err != nil {
+				return err
+			}
+			var declared jsonschema.Schema
+			if err = json.Unmarshal(encoded, &declared); err != nil {
+				return err
+			}
+			outputSchema, err = declared.Resolve(nil)
+			if err != nil {
+				return fmt.Errorf("MCP output schema %s: %w", remote.Name, err)
+			}
+		}
+		adapter := mcpTool{outputSchema: outputSchema, session: session, remote: remote.Name, schema: resolved, spec: llm.ToolDef{Name: name, Description: "MCP " + server + "/" + remote.Name + ": " + remote.Description, Parameters: params}}
 		if e = r.Register(adapter); e != nil {
 			return e
 		}
@@ -168,10 +188,11 @@ func Register(ctx context.Context, r *tool.Registry, session *mcp.ClientSession,
 }
 
 type mcpTool struct {
-	session *mcp.ClientSession
-	remote  string
-	schema  *jsonschema.Resolved
-	spec    llm.ToolDef
+	outputSchema *jsonschema.Resolved
+	session      *mcp.ClientSession
+	remote       string
+	schema       *jsonschema.Resolved
+	spec         llm.ToolDef
 }
 
 func (t mcpTool) Spec() llm.ToolDef { return t.spec }
@@ -191,15 +212,34 @@ func (t mcpTool) Execute(ctx context.Context, raw string) (string, error) {
 	if e := t.schema.Validate(args); e != nil {
 		return "", fmt.Errorf("MCP input schema: %w", e)
 	}
-	result, e := t.session.CallTool(ctx, &mcp.CallToolParams{Name: t.remote, Arguments: args})
+	params := &mcp.CallToolParams{Name: t.remote, Arguments: args}
+	if id := tool.ExecutionID(ctx); id != "" {
+		params.Meta = mcp.Meta{"io.lanagent/execution_id": id}
+	}
+	result, e := t.session.CallTool(ctx, params)
 	if e != nil {
 		return "", fmt.Errorf("%w: MCP %s: %v", tool.ErrUncertain, t.remote, e)
 	}
+	if !result.IsError && t.outputSchema != nil {
+		encoded, err := json.Marshal(result.StructuredContent)
+		var value any
+		if err == nil {
+			err = json.Unmarshal(encoded, &value)
+		}
+		if err == nil {
+			err = t.outputSchema.Validate(value)
+		}
+		if err != nil {
+			return "", fmt.Errorf("%w: MCP output schema mismatch for %s", tool.ErrUncertain, t.remote)
+		}
+	}
 	var text strings.Builder
-	for _, item := range result.Content {
-		if v, ok := item.(*mcp.TextContent); ok {
-			text.WriteString(v.Text)
-			text.WriteByte('\n')
+	if result.StructuredContent == nil {
+		for _, item := range result.Content {
+			if v, ok := item.(*mcp.TextContent); ok {
+				text.WriteString(v.Text)
+				text.WriteByte('\n')
+			}
 		}
 	}
 	if result.StructuredContent != nil {

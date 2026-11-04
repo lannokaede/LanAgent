@@ -1,0 +1,14 @@
+{
+  "servers": [
+    {
+      "name": "research",
+      "url": "http://127.0.0.1:18090/mcp",
+      "token_env": "LANAGENT_RESEARCH_TOKEN",
+      "tools": [
+        "web_search", "web_fetch", "read_artifact", "search_artifact",
+        "knowledge_sources", "knowledge_document", "knowledge_stage",
+        "knowledge_commit", "knowledge_search", "job_status", "job_cancel", "operation_status"
+      ]
+    }
+  ]
+}

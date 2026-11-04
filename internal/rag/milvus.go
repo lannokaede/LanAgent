@@ -21,11 +21,13 @@ type MilvusStore struct {
 	http                               *http.Client
 }
 type Hit struct {
-	ID     string  `json:"id"`
-	Score  float64 `json:"distance"`
-	Source string  `json:"source"`
-	Index  int     `json:"chunk_index"`
-	Text   string  `json:"text"`
+	DocumentID string  `json:"document_id,omitempty"`
+	RevisionID string  `json:"revision_id,omitempty"`
+	ID         string  `json:"id"`
+	Score      float64 `json:"distance"`
+	Source     string  `json:"source"`
+	Index      int     `json:"chunk_index"`
+	Text       string  `json:"text"`
 }
 
 var collectionName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,127}$`)
@@ -162,7 +164,7 @@ func (s *MilvusStore) Search(ctx context.Context, kb string, vector []float32, l
 		return nil, err
 	}
 	var hits []Hit
-	err := s.call(ctx, "entities/search", map[string]any{"data": [][]float32{vector}, "annsField": "vector", "filter": "kb == " + strconv.Quote(kb), "limit": limit, "outputFields": []string{"source", "chunk_index", "text"}, "consistencyLevel": "Strong", "searchParams": map[string]any{"metricType": "COSINE", "params": map[string]any{}}}, &hits)
+	err := s.call(ctx, "entities/search", map[string]any{"data": [][]float32{vector}, "annsField": "vector", "filter": "kb == " + strconv.Quote(kb), "limit": limit, "outputFields": []string{"source", "chunk_index", "text", "document_id", "revision_id"}, "consistencyLevel": "Strong", "searchParams": map[string]any{"metricType": "COSINE", "params": map[string]any{}}}, &hits)
 	if err != nil {
 		return nil, err
 	}
