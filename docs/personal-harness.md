@@ -4,7 +4,7 @@
 
 ## 启动
 
-在仓库根目录运行。使用 `configs/harness` 或 `configs/interview` 本地模型配置，也可设置 `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`。密钥不写入示例文件。
+在仓库根目录运行。首次可执行 `go run ./cmd/setup`，填写或粘贴 API 配置，各入口共享读取；也可使用 `configs/harness` 或 `configs/interview` 本地覆盖配置，或设置 `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`。密钥不写入示例文件。
 
 ```bash
 go run ./cmd/harness -workspace . -prompt "读取 README.md 并说明项目结构"

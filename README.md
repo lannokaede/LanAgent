@@ -25,18 +25,20 @@ flowchart LR
 
 ## 快速开始
 
-需要 Go 1.26 或更新版本，及支持工具调用的 OpenAI Compatible Chat Completions 服务。在终端设置自己的模型配置：
+需要 Go 1.26 或更新版本，及支持工具调用与 SSE 的 OpenAI Compatible Chat Completions 服务。首次使用通过向导填写 Base URL、Key 和模型名：
 
 ```bash
 git clone https://github.com/lannokaede/LanAgent.git
 cd LanAgent
-export LLM_BASE_URL='https://YOUR_OPENAI_COMPATIBLE_HOST/v1'
-export LLM_MODEL='YOUR_CHAT_MODEL'
-export LLM_API_KEY='YOUR_API_KEY'
+go run ./cmd/setup
 go run ./cmd/harness -workspace . -prompt '读取 README.md，说明项目结构'
 ```
 
-默认个人模式仅需要模型服务。可在忽略的 `configs/harness/config.local.yaml` 中配置 `llm.base_url`、`llm.model`、`llm.api_key`；环境变量优先。`.env.example` 仅是示例，程序不会自动加载 `.env`。
+`setup` 支持逐项填写，或用 `go run ./cmd/setup -import -` 一次粘贴整段配置，最后输入 `/save`。Key 在终端隐藏输入；保存前执行一次最小 SSE 连通性检查。模型名留空时尝试读取服务端模型列表。
+
+配置存入用户配置目录的 `lanagent/api.local.json`（Linux 通常为 `~/.config/lanagent/api.local.json`，文件权限 0600），三个应用入口共享读取。优先级：环境变量 > 项目 `config.local.yaml` > 用户共享 API > 项目基础配置。旧私有配置可通过 `go run ./cmd/setup -from-config PRIVATE_CONFIG_DIR` 迁移。详见 [模型 API 接入](docs/model-api-setup.md)。
+
+默认个人模式仅需要聊天模型。也可继续使用 `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY` 环境变量；`.env.example` 仅是示例，不自动加载。
 
 ```bash
 # 交互模式；按需开启写入和固定诊断命令
@@ -55,7 +57,7 @@ go run ./cmd/harness -workspace . -mcp-config examples/harness/mcp.example.json
 
 ## 面试知识库
 
-使用自己可访问的 Milvus REST 服务，配置 `configs/interview/config.yaml` 中的地址和集合。Embedding 与聊天模型分开配置：默认示例为 `text-embedding-v4`、1024 维，可更换兼容服务，但查询与索引须使用相同模型及维度。
+使用自己可访问的 Milvus REST 服务，配置 `configs/interview/config.yaml` 中的地址和集合。Embedding 与聊天模型分开配置，可用 `go run ./cmd/setup -kind embedding` 接入。目前适配 `text-embedding-v4`，示例为 1024 维；其他模型需要扩展适配器并使用新集合，查询与索引须使用相同模型及维度。
 
 ```bash
 export EMBEDDING_API_KEY='YOUR_EMBEDDING_API_KEY'
@@ -84,6 +86,7 @@ go run ./cmd/harness -config configs/interview -workspace . \
 
 | 目录 | 用途 |
 | --- | --- |
+| `cmd/setup` | API 配置向导、粘贴导入与连通性检查 |
 | `cmd/harness` | 个人工作目录与学习入口 |
 | `cmd/interview` | 逐题训练、追问与复习 |
 | `cmd/knowledge` | 采集、预处理、导入、检索与显式维护 |

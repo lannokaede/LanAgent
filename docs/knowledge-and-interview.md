@@ -4,7 +4,7 @@
 
 采集程序位于 `internal/corpus`，种子来自 Go、Redis、PostgreSQL 官方文档。最多 30 个种子，当前 17 个；不递归、不登录，校验 robots、同源重定向和响应大小，请求间隔 1 秒。manifest 记录来源、主题、时间和 SHA-256，导入先核对清单及文件哈希。
 
-`configs/interview/config.yaml` 声明聊天、Embedding 和 Milvus 配置。聊天密钥使用 `LLM_API_KEY`，向量密钥使用 `EMBEDDING_API_KEY`。可通过忽略的 `config.local.yaml` 配置本机值，`MILVUS_URL`、`MILVUS_TOKEN` 支持环境变量覆盖。向量集合元信息校验模型身份和维度，不混用不匹配的索引。
+首次可用 `go run ./cmd/setup` 配置聊天 API、`go run ./cmd/setup -kind embedding` 配置向量 API，共享保存后无需逐个入口填写。`configs/interview/config.yaml` 声明知识库和基础配置。聊天密钥使用 `LLM_API_KEY`，向量密钥使用 `EMBEDDING_API_KEY`。可通过忽略的 `config.local.yaml` 配置本机值，`MILVUS_URL`、`MILVUS_TOKEN` 支持环境变量覆盖。向量集合元信息校验模型身份和维度，不混用不匹配的索引。
 
 ```bash
 mkdir -p .runtime/corpora

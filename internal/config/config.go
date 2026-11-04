@@ -71,6 +71,17 @@ func Load(dir string) (*Config, error) {
 	if e := v.ReadInConfig(); e != nil {
 		return nil, fmt.Errorf("read profile: %w", e)
 	}
+	apiPath, e := APISettingsPath()
+	if e != nil {
+		return nil, e
+	}
+	shared, e := ReadAPISettings(apiPath)
+	if e != nil {
+		return nil, e
+	}
+	if e = v.MergeConfigMap(shared.defaults()); e != nil {
+		return nil, fmt.Errorf("merge local API settings")
+	}
 	v.SetConfigName("config.local")
 	if e := v.MergeInConfig(); e != nil {
 		if _, ok := e.(viper.ConfigFileNotFoundError); !ok {

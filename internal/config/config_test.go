@@ -7,6 +7,7 @@ import (
 )
 
 func TestLocalOverridesEnvironmentPrecedenceAndLimits(t *testing.T) {
+	t.Setenv("LANAGENT_API_CONFIG", filepath.Join(t.TempDir(), "none.json"))
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("llm:\n  model: base-model\n"), 0600)
 	os.WriteFile(filepath.Join(dir, "config.local.yaml"), []byte("llm:\n  model: local-model\n  api_key: fixture-local-key\n"), 0600)
@@ -25,6 +26,7 @@ func TestLocalOverridesEnvironmentPrecedenceAndLimits(t *testing.T) {
 	}
 }
 func TestOfflineProfileDoesNotRequireChatCredential(t *testing.T) {
+	t.Setenv("LANAGENT_API_CONFIG", filepath.Join(t.TempDir(), "none.json"))
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("rag:\n  enabled: false\n"), 0600)
 	t.Setenv("LLM_API_KEY", "")
