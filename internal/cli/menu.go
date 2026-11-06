@@ -90,6 +90,10 @@ func launcher(ctx context.Context, args []string, r *bufio.Reader, out, status i
 	f.BoolVar(&p.Summary, "summary", true, "摘要")
 	f.IntVar(&p.Rounds, "rounds", 10, "模型轮数")
 	f.DurationVar(&p.Timeout, "timeout", p.Timeout, "任务期限")
+	p.Memory = f.Bool("memory", true, "个人记忆")
+	f.StringVar(&p.MemoryDB, "memory-db", "", "个人记忆数据库")
+	f.BoolVar(&p.MemoryVectors, "memory-vectors", false, "记忆向量索引")
+	f.StringVar(&p.MemoryCollection, "memory-collection", "lanagent_personal_memory_v1", "个人记忆集合")
 	dir := f.String("state-dir", "", "会话目录")
 	session := f.String("session", "", "预选会话 ID")
 	if e := f.Parse(args); e != nil {
@@ -290,6 +294,18 @@ func launchArgs(p personal.Launch, dir, id, action string) []string {
 	if action != "" {
 		args = append(args, action)
 	}
+	if p.Memory != nil {
+		args = append(args, fmt.Sprintf("-memory=%t", *p.Memory))
+	}
+	if p.MemoryDB != "" {
+		args = append(args, "-memory-db", p.MemoryDB)
+	}
+	if p.MemoryVectors {
+		args = append(args, "-memory-vectors")
+	}
+	if p.MemoryCollection != "" {
+		args = append(args, "-memory-collection", p.MemoryCollection)
+	}
 	return args
 }
 func editLaunch(p *personal.Launch, read func(string) (string, error), out io.Writer) error {
@@ -373,6 +389,9 @@ func editLaunch(p *personal.Launch, read func(string) (string, error), out io.Wr
 	}
 }
 func absoluteLaunch(p personal.Launch) personal.Launch {
+	if p.MemoryDB != "" {
+		p.MemoryDB, _ = filepath.Abs(p.MemoryDB)
+	}
 	p.Config, _ = filepath.Abs(p.Config)
 	p.Workspace, _ = filepath.Abs(p.Workspace)
 	if p.MCP != "" {

@@ -65,3 +65,15 @@ func TestMenuRestoresExactLaunchChoices(t *testing.T) {
 		t.Fatal("prefetched next menu choice", rest)
 	}
 }
+
+func TestMenuRestoresMemoryOptions(t *testing.T) {
+	disabled := false
+	p := personal.Launch{Config: "configs/harness", Workspace: "/work", Summary: true, Rounds: 10, Timeout: 123000000000, Memory: &disabled, MemoryDB: "/profile/memory.db", MemoryVectors: false, MemoryCollection: "personal_test"}
+	args := launchArgs(p, "/states", "session", "")
+	raw, _ := json.Marshal(args)
+	for _, want := range []string{"-memory=false", "/profile/memory.db", "personal_test"} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatal(string(raw))
+		}
+	}
+}

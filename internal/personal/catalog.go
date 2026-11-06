@@ -14,15 +14,19 @@ import (
 
 // Launch stores only non-secret startup choices, never model keys or MCP tokens.
 type Launch struct {
-	Config    string        `json:"config"`
-	Workspace string        `json:"workspace"`
-	MCP       string        `json:"mcp,omitempty"`
-	Exercise  string        `json:"exercise,omitempty"`
-	Write     bool          `json:"write"`
-	Commands  bool          `json:"commands"`
-	Summary   bool          `json:"summary"`
-	Rounds    int           `json:"rounds"`
-	Timeout   time.Duration `json:"timeout"`
+	Memory           *bool         `json:"memory,omitempty"`
+	MemoryDB         string        `json:"memory_db,omitempty"`
+	MemoryVectors    bool          `json:"memory_vectors,omitempty"`
+	MemoryCollection string        `json:"memory_collection,omitempty"`
+	Config           string        `json:"config"`
+	Workspace        string        `json:"workspace"`
+	MCP              string        `json:"mcp,omitempty"`
+	Exercise         string        `json:"exercise,omitempty"`
+	Write            bool          `json:"write"`
+	Commands         bool          `json:"commands"`
+	Summary          bool          `json:"summary"`
+	Rounds           int           `json:"rounds"`
+	Timeout          time.Duration `json:"timeout"`
 }
 type SessionInfo struct {
 	ID, Title, Workspace, Status string

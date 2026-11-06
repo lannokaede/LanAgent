@@ -19,3 +19,5 @@ dist/
 *.local.yaml
 .cache/
 .lanagent/state/
+
+node_modules

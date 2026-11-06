@@ -22,7 +22,16 @@ type Runner struct {
 	format     *llm.ResponseFormat
 	pinned     func() string
 	tools      ToolPolicy
+	recall     func(context.Context, string) (string, error)
 }
+
+// WithRecall adds current facts to the request only, never durable run messages.
+// Configure before sharing; failures degrade to the original conversation.
+func (r *Runner) WithRecall(fn func(context.Context, string) (string, error)) *Runner {
+	r.recall = fn
+	return r
+}
+
 type Event struct {
 	Type string
 	Data any

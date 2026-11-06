@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>LanAgent</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        width: 1440px;
+        padding: 18px;
+        background: #f3f5f8;
+      }
+      .terminal {
+        background: #142031;
+        color: #d9e2ec;
+        border: 1px solid #29384b;
+        border-radius: 9px;
+        overflow: hidden;
+      }
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 13px 20px;
+        background: #1b2a3e;
+        border-bottom: 1px solid #304055;
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #687e94;
+      }
+      .dot:first-child {
+        background: #c57c72;
+      }
+      .dot:nth-child(2) {
+        background: #ceb36c;
+      }
+      .dot:nth-child(3) {
+        background: #6eaa94;
+      }
+      .content {
+        padding: 22px 26px;
+      }
+      .block + .block {
+        border-top: 1px solid #2a3b50;
+        padding-top: 15px;
+        margin-top: 16px;
+      }
+      .command,
+      pre {
+        font:
+          20px/1.75 "DejaVu Sans Mono",
+          "Noto Sans CJK SC",
+          "Droid Sans Fallback",
+          "Microsoft YaHei",
+          monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        margin: 0;
+      }
+      .command {
+        color: #9be1c1;
+        margin-bottom: 8px;
+      }
+      .prompt {
+        color: #5dba96;
+      }
+      pre.error {
+        color: #edb6a5;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="terminal">
+      <div class="bar">
+        <i class="dot"></i><i class="dot"></i><i class="dot"></i>
+      </div>
+      <div class="content">{{blocks}}</div>
+    </main>
+  </body>
+</html>

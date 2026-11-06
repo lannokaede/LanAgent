@@ -1,0 +1,14 @@
+{
+  "name": "lanagent-demo-images",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "demo:images": "node scripts/generate-demo-images.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.51.1"
+  }
+}

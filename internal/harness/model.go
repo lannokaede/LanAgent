@@ -17,6 +17,27 @@ func (r *Runner) plan(ctx context.Context, s *runState) (*runState, error) {
 	}
 	s.round++
 	req := &llm.ChatRequest{Messages: cloneMessages(s.messages), Tools: r.registry.ListSpecs(), ResponseFormat: r.format}
+	if r.recall != nil {
+		query := ""
+		for _, m := range req.Messages {
+			if m.Role == llm.RoleUser {
+				query = m.Content
+			}
+		}
+		facts, recallErr := r.recall(ctx, query)
+		if err := ctx.Err(); err != nil {
+			return s, err
+		}
+		if recallErr == nil && facts != "" {
+			pos := 0
+			for pos < len(req.Messages) && req.Messages[pos].Role == llm.RoleSystem {
+				pos++
+			}
+			messages := append([]llm.Message(nil), req.Messages[:pos]...)
+			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: facts})
+			req.Messages = append(messages, req.Messages[pos:]...)
+		}
+	}
 	if r.pinned != nil {
 		if len(req.Messages) > 0 && req.Messages[0].Role == llm.RoleSystem {
 			req.Messages[0].Content += "\n" + r.pinned()

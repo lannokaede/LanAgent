@@ -10,6 +10,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lannokaede/LanAgent/internal/config"
@@ -19,6 +20,7 @@ import (
 	"github.com/lannokaede/LanAgent/internal/interview"
 	"github.com/lannokaede/LanAgent/internal/llm"
 	"github.com/lannokaede/LanAgent/internal/personal"
+	"github.com/lannokaede/LanAgent/internal/personalmemory"
 	"github.com/lannokaede/LanAgent/internal/practice"
 	"github.com/lannokaede/LanAgent/internal/rag"
 	"github.com/lannokaede/LanAgent/internal/tool"
@@ -41,6 +43,11 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 	exercise := flags.String("exercise", "", "绑定固定 Go 编程题，格式 id/version；启用 Docker 工具")
 	reconcile := flags.Bool("reconcile", false, "核对不确定的面试或研究 MCP 操作，不重新执行")
 	resume := flags.Bool("resume", false, "恢复该 session 的未完成任务")
+	memoryEnabled := flags.Bool("memory", true, "启用本地 SQLite 个人记忆；用 /remember 显式保存")
+	memoryDB := flags.String("memory-db", "", "个人记忆数据库；默认 state-dir/personal-memory.db")
+	memoryVectors := flags.Bool("memory-vectors", false, "后台同步个人记忆到独立 Milvus 集合并启用语义召回")
+	memoryInit := flags.Bool("memory-init", false, "显式初始化个人记忆 Milvus 集合；需 -memory-vectors")
+	memoryCollection := flags.String("memory-collection", "lanagent_personal_memory_v1", "独立个人记忆集合，不使用知识库/Mem0 集合")
 	timeout := flags.Duration("timeout", 2*time.Minute, "每次任务的总期限")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -51,11 +58,39 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 	if (*reconcile && (*resume || *prompt != "" || *sessionID == "")) || (*resume && (*prompt != "" || *sessionID == "")) || flags.NArg() != 0 || *rounds < 1 || *rounds > 100 || *timeout <= 0 {
 		return errors.New("use named flags; rounds must be 1–100 and timeout must be positive")
 	}
+	if (*memoryVectors && !*memoryEnabled) || (*memoryInit && !*memoryVectors) {
+		return errors.New("memory vectors require -memory; memory init requires -memory-vectors")
+	}
 	w, err := workspace.Open(*workDir)
 	if err != nil {
 		return err
 	}
 	defer w.Close()
+	if *stateDir == "" {
+		*stateDir, err = personal.DefaultStateDir()
+		if err != nil {
+			return err
+		}
+	}
+	if *memoryDB == "" {
+		*memoryDB = filepath.Join(*stateDir, "personal-memory.db")
+	}
+	// Local memory administration requires neither model credentials nor a model
+	// connection. It does not create a conversation or load external tools.
+	if personalmemory.IsCommand(*prompt) && !*memoryVectors {
+		if !*memoryEnabled {
+			return errors.New("personal memory disabled; enable -memory")
+		}
+		store, err := personalmemory.Open(ctx, *memoryDB)
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		call, cancel := context.WithTimeout(ctx, *timeout)
+		defer cancel()
+		_, err = personalmemory.New(store, w.Path(), nil).Command(call, *prompt, "cli:explicit-user", out)
+		return err
+	}
 	registry, err := w.Registry()
 	if err != nil {
 		return err
@@ -123,17 +158,55 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 		runner.WithSummary(gateway)
 	}
 	runner.WithPinnedState(func() string { return pinned })
-	if *stateDir == "" {
-		*stateDir, err = personal.DefaultStateDir()
-		if err != nil {
-			return err
-		}
-	}
 	session, err := personal.Open(*stateDir, *sessionID, w.Path())
 	if err != nil {
 		return err
 	}
 	defer session.Close()
+	var memories *personalmemory.Service
+	if *memoryEnabled {
+		store, e := personalmemory.Open(ctx, *memoryDB)
+		if e != nil {
+			return e
+		}
+		defer store.Close()
+		var index personalmemory.Index
+		if *memoryVectors {
+			emb, e := rag.NewEmbeddingClient(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.APIKey, cfg.Embedding.Dimensions)
+			if e != nil {
+				return e
+			}
+			milvus, e := personalmemory.NewMilvus(cfg.RAG.MilvusURL, cfg.RAG.MilvusToken, *memoryCollection, emb, cfg.Embedding.Dimensions)
+			if e != nil {
+				emb.Close()
+				return e
+			}
+			defer milvus.Close()
+			check, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if *memoryInit {
+				e = milvus.Init(check)
+			} else {
+				e = milvus.Check(check)
+			}
+			cancel()
+			if e != nil {
+				return e
+			}
+			if e = store.BindIndex(ctx, milvus.Identity()); e != nil {
+				return e
+			}
+			index = milvus
+		}
+		memories = personalmemory.New(store, w.Path(), index)
+		runner.WithRecall(memories.Recall)
+		if index != nil && !personalmemory.IsCommand(*prompt) {
+			workerCtx, stop := context.WithCancel(ctx)
+			var workers sync.WaitGroup
+			workers.Add(1)
+			go func() { defer workers.Done(); memories.Run(workerCtx, nil) }()
+			defer func() { stop(); workers.Wait() }()
+		}
+	}
 
 	var training *interview.Tools
 	if interviewSearch != nil {
@@ -197,7 +270,7 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 		return e
 	}
 	if cp := session.Pending(); cp == nil || cp.Profile == runner.ProfileID() {
-		if err = session.SaveLaunch(absoluteLaunch(personal.Launch{Config: *configDir, Workspace: w.Path(), MCP: *mcpConfig, Exercise: *exercise, Write: *allowWrite, Commands: *allowCommands, Summary: *summary, Rounds: *rounds, Timeout: *timeout})); err != nil {
+		if err = session.SaveLaunch(absoluteLaunch(personal.Launch{Config: *configDir, Workspace: w.Path(), MCP: *mcpConfig, Exercise: *exercise, Write: *allowWrite, Commands: *allowCommands, Summary: *summary, Rounds: *rounds, Timeout: *timeout, Memory: memoryEnabled, MemoryDB: *memoryDB, MemoryVectors: *memoryVectors, MemoryCollection: *memoryCollection})); err != nil {
 			return err
 		}
 	}
@@ -210,10 +283,10 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 	if *resume {
 		*prompt = "/resume"
 	}
-	return sessionLoop(ctx, session, runner, training, *timeout, *prompt, in, out, status)
+	return sessionLoop(ctx, session, runner, training, *timeout, *prompt, in, out, status, memories)
 }
 
-func sessionLoop(ctx context.Context, session *personal.Session, runner *harness.Runner, training *interview.Tools, timeout time.Duration, prompt string, in io.Reader, out, status io.Writer) error {
+func sessionLoop(ctx context.Context, session *personal.Session, runner *harness.Runner, training *interview.Tools, timeout time.Duration, prompt string, in io.Reader, out, status io.Writer, memory ...*personalmemory.Service) error {
 	turn := func(input string) error {
 		if training != nil {
 			id, text := session.BoundInput(input)
@@ -221,6 +294,14 @@ func sessionLoop(ctx context.Context, session *personal.Session, runner *harness
 		}
 		call, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
+		if personalmemory.IsCommand(input) {
+			if len(memory) == 0 || memory[0] == nil {
+				return errors.New("personal memory disabled; enable -memory")
+			}
+			if handled, err := memory[0].Command(call, input, "session:"+session.ID, out); handled || err != nil {
+				return err
+			}
+		}
 		eventSink := func(event harness.Event) error {
 			if event.Type == "tool_call" {
 				data, _ := event.Data.(map[string]any)
@@ -263,7 +344,7 @@ func sessionLoop(ctx context.Context, session *personal.Session, runner *harness
 			return errMenu
 		}
 		if command == "/help" {
-			fmt.Fprintln(status, "/menu 会话菜单 · /sessions 选择会话 · /status 未完成任务 · /resume 恢复 · /paste 多行输入 · /exit 退出对话")
+			fmt.Fprintln(status, "/menu 会话菜单 · /sessions 选择会话 · /status 未完成任务 · /resume 恢复 · /paste 多行输入 · /remember 保存记忆 · /memory 查看记忆 · /forget 删除记忆 · /exit 退出对话")
 			continue
 		}
 		if command == "/exit" {

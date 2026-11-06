@@ -1,0 +1,42 @@
+name: Generate demo images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+      - run: go mod download
+      - run: npm run demo:images
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lanagent-demo-images
+          path: docs/images/demos/*.png
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lanagent-demo-image-report
+          path: |
+            .runtime/demo-images/report.json
+            .runtime/demo-images/transcripts.json
+            .runtime/demo-images/fixtures.json
+            .runtime/demo-images/*.html
+          if-no-files-found: warn
