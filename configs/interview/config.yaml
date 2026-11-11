@@ -4,6 +4,9 @@ llm:
   model: ""
   timeout: 60s
   concurrency: 1
+  retry:
+    max_attempts: 3
+    base_delay: 250ms
 embedding:
   base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
   model: "text-embedding-v4"
@@ -23,3 +26,8 @@ context:
   output_reserve: 4096
   tool_reserve: 2048
   summary_tokens: 512
+
+# rules needs no extra model; hybrid uses routing.classifier or inherits llm.
+routing:
+  mode: rules
+  timeout: 3s

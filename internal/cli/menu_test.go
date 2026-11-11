@@ -47,10 +47,10 @@ func TestMenuNewConversationThenSelectWithoutLosingBufferedInput(t *testing.T) {
 	}
 }
 func TestMenuRestoresExactLaunchChoices(t *testing.T) {
-	p := personal.Launch{Config: "/profiles/knowledge", Workspace: "/work", MCP: "/private/mcp.json", Write: true, Commands: true, Summary: false, Rounds: 7, Timeout: 123000000000, Exercise: "context-cancel/v1"}
+	p := personal.Launch{Config: "/profiles/knowledge", Workspace: "/work", MCP: "/private/mcp.json", WebPolicy: "off", Write: true, Commands: true, Summary: false, Rounds: 7, Timeout: 123000000000, Exercise: "context-cancel/v1"}
 	args := launchArgs(p, "/states", "session", "-resume")
 	b, _ := json.Marshal(args)
-	for _, v := range []string{"/profiles/knowledge", "/private/mcp.json", "-allow-write", "-allow-commands", "-summary=false", "-resume"} {
+	for _, v := range []string{"/profiles/knowledge", "/private/mcp.json", "-allow-write", "-allow-commands", "-summary=false", "-resume", "-web-policy", "off"} {
 		if !strings.Contains(string(b), v) {
 			t.Fatal(string(b))
 		}

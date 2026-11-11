@@ -10,12 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/lannokaede/LanAgent/internal/corpus"
 )
 
 // Firecrawl exposes only search and Markdown scrape. Model arguments cannot
@@ -151,7 +148,26 @@ func (s *Service) SearchWeb(ctx context.Context, q string, n int) ([]Page, error
 		return nil, errors.New("query requires 1..1024 characters, limit 1..5")
 	}
 	if s.opts.Web == nil {
-		return nil, errors.New("web search not configured; set FIRECRAWL_API_KEY and use -web firecrawl")
+		pages, e := s.siteIndex.Search(ctx, q, 5)
+		if e != nil {
+			return nil, e
+		}
+		out := []Page{}
+		for _, p := range pages {
+			u, e := s.canonical(p.URL)
+			if e != nil {
+				continue
+			}
+			parsed, _ := url.Parse(u)
+			if !officialHost(parsed.Hostname()) {
+				continue
+			}
+			out = append(out, p)
+			if len(out) == n {
+				break
+			}
+		}
+		return out, nil
 	}
 	if e := s.reserveWeb(false); e != nil {
 		return nil, e
@@ -199,25 +215,15 @@ func (s *Service) Fetch(ctx context.Context, raw string) (Source, error) {
 		if !officialHost(parsed.Hostname()) {
 			return Source{}, errors.New("non-official pages require configured web provider")
 		}
-		// Reuse the bounded, robots-aware official collector. It never follows
-		// discovered links and only allows the three existing official hosts.
-		dir, e2 := osTemp(s.opts.Directory)
-		if e2 != nil {
-			return Source{}, e2
+		s.fetchMu.Lock()
+		page, fetchErr := s.crawler.FetchPage(ctx, u)
+		s.fetchMu.Unlock()
+		e = fetchErr
+		p = Page{URL: page.URL, Title: page.Title, Text: page.Text}
+		if e != nil {
+			_ = s.siteIndex.Failure(ctx, u, e)
 		}
-		defer dir.close()
-		manifest, e2 := corpus.NewCrawler().Crawl(ctx, []corpus.Source{{ID: "page", Topic: "research", URL: u}}, filepath.Join(dir.path, "corpus"))
-		if e2 != nil {
-			return Source{}, e2
-		}
-		if len(manifest.Documents) != 1 || manifest.Documents[0].Error != "" {
-			return Source{}, errors.New("official page unavailable or robots refused")
-		}
-		b, e2 := dir.read(manifest.Documents[0].File)
-		if e2 != nil {
-			return Source{}, e2
-		}
-		p = Page{URL: u, Title: manifest.Documents[0].Title, Text: string(b)}
+
 	}
 	if e != nil {
 		return Source{}, e
@@ -262,6 +268,9 @@ func (s *Service) Fetch(ctx context.Context, raw string) (Source, error) {
 		st.Sources[src.ID] = src
 		return nil
 	})
+	if e == nil && kind == "official" {
+		e = s.siteIndex.Put(ctx, Page{URL: final, Title: title, Text: text})
+	}
 	return src, e
 }
 func preview(s string, n int) string {

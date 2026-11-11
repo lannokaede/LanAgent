@@ -5,6 +5,9 @@ llm:
   model: ""
   timeout: 45s
   concurrency: 1
+  retry:
+    max_attempts: 3
+    base_delay: 250ms
 practice:
   image: "lanagent/practice-go:1.26.9-v1"
   work_dir: ".runtime/practice"
@@ -17,3 +20,8 @@ context:
   output_reserve: 4096
   tool_reserve: 2048
   summary_tokens: 512
+
+# rules needs no extra model; hybrid uses routing.classifier or inherits llm.
+routing:
+  mode: rules
+  timeout: 3s

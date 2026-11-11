@@ -71,4 +71,5 @@ type ChatResponse struct {
 	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
 	FinishReason string        `json:"finish_reason"`
 	Usage        Usage         `json:"usage"`
+	UsageKnown   bool          `json:"usage_known,omitempty"`
 }

@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,6 +33,9 @@ func main() {
 	}
 }
 func run(ctx context.Context, args []string, status io.Writer) error {
+	if len(args) > 0 && args[0] == "index" {
+		return runIndex(ctx, args[1:], status)
+	}
 	flags := flag.NewFlagSet("research-mcp", flag.ContinueOnError)
 	flags.SetOutput(status)
 	maxSearch := flags.Int("max-search-calls", 20, "persistent provider search request limit for this data directory")
@@ -164,4 +168,37 @@ func httpHandler(server *mcp.Server, token string, origins []string) http.Handle
 		r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 		endpoint.ServeHTTP(w, r)
 	})
+}
+
+// Index maintenance runs without a chat model, embedding service or vector DB.
+func runIndex(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) == 0 || args[0] != "refresh" {
+		return errors.New("use research-mcp index refresh")
+	}
+	f := flag.NewFlagSet("index refresh", flag.ContinueOnError)
+	f.SetOutput(out)
+	dir := f.String("data-dir", ".runtime/research", "research directory containing web-index.db")
+	pages := f.Int("max-pages", 100, "maximum attempted pages (1..1000)")
+	depth := f.Int("max-depth", 2, "maximum link discovery depth (0..5)")
+	if e := f.Parse(args[1:]); e != nil {
+		if errors.Is(e, flag.ErrHelp) {
+			return nil
+		}
+		return e
+	}
+	if f.NArg() != 0 || *pages < 1 || *pages > 1000 || *depth < 0 || *depth > 5 {
+		return errors.New("use named flags; max-pages 1..1000, max-depth 0..5")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	index, e := research.OpenSiteIndex(*dir)
+	if e != nil {
+		return e
+	}
+	defer index.Close()
+	report, e := index.RefreshOfficial(ctx, *pages, *depth)
+	if encodeErr := json.NewEncoder(out).Encode(report); encodeErr != nil {
+		return encodeErr
+	}
+	return e
 }

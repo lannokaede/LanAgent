@@ -64,3 +64,20 @@ func TestStreamableHTTPHandshakeAndTool(t *testing.T) {
 		t.Fatal(result, e)
 	}
 }
+
+func TestIndexCommandRejectsInvalidBoundsAndHonorsCancellation(t *testing.T) {
+	for _, args := range [][]string{{"index"}, {"index", "search"}, {"index", "refresh", "-max-pages", "0"}, {"index", "refresh", "-max-depth", "6"}} {
+		if e := run(context.Background(), args, io.Discard); e == nil {
+			t.Fatal("invalid index command accepted", args)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out strings.Builder
+	if e := run(ctx, []string{"index", "refresh", "-data-dir", t.TempDir()}, &out); e != context.Canceled {
+		t.Fatal(e)
+	}
+	if !strings.Contains(out.String(), `"attempted":0`) {
+		t.Fatal(out.String())
+	}
+}

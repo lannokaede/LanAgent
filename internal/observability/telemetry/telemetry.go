@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -54,15 +55,23 @@ func Init(ctx context.Context, c Config) (func(context.Context) error, error) {
 		}
 		return nil, err
 	}
+	previous := otel.GetTracerProvider()
+	previousPropagation := otel.GetTextMapPropagator()
 	p := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", "lanagent"))))
 	otel.SetTracerProvider(p)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
+	var once sync.Once
+	var closeErr error
 	return func(ctx context.Context) error {
-		err := p.Shutdown(ctx)
-		if file != nil {
-			err = errors.Join(err, file.Close())
-		}
-		return err
+		once.Do(func() {
+			otel.SetTracerProvider(previous)
+			otel.SetTextMapPropagator(previousPropagation)
+			closeErr = p.Shutdown(ctx)
+			if file != nil {
+				closeErr = errors.Join(closeErr, file.Close())
+			}
+		})
+		return closeErr
 	}, nil
 }
 func Start(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {

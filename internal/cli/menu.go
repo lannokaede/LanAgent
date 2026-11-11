@@ -84,6 +84,7 @@ func launcher(ctx context.Context, args []string, r *bufio.Reader, out, status i
 	f.StringVar(&p.Config, "config", p.Config, "资源配置目录")
 	f.StringVar(&p.Workspace, "workspace", p.Workspace, "工作目录")
 	f.StringVar(&p.MCP, "mcp-config", "", "MCP 配置")
+	f.StringVar(&p.WebPolicy, "web-policy", "auto", "网页工具策略 auto/off")
 	f.StringVar(&p.Exercise, "exercise", "", "绑定代码题")
 	f.BoolVar(&p.Write, "allow-write", false, "文件写入")
 	f.BoolVar(&p.Commands, "allow-commands", false, "固定诊断")
@@ -276,6 +277,9 @@ func launcher(ctx context.Context, args []string, r *bufio.Reader, out, status i
 }
 func launchArgs(p personal.Launch, dir, id, action string) []string {
 	args := []string{"-config", p.Config, "-workspace", p.Workspace, "-state-dir", dir, "-rounds", strconv.Itoa(p.Rounds), "-timeout", p.Timeout.String(), "-summary=" + strconv.FormatBool(p.Summary)}
+	if p.WebPolicy != "" {
+		args = append(args, "-web-policy", p.WebPolicy)
+	}
 	if p.Write {
 		args = append(args, "-allow-write")
 	}
@@ -310,7 +314,7 @@ func launchArgs(p personal.Launch, dir, id, action string) []string {
 }
 func editLaunch(p *personal.Launch, read func(string) (string, error), out io.Writer) error {
 	for {
-		fmt.Fprintf(out, "\n启动设置\n  1 工作目录：%s\n  2 资源配置：%s\n  3 写文件：%s\n  4 固定诊断：%s\n  5 MCP 配置：%s\n  6 代码题：%s\n  7 期限：%s\n  8 历史摘要：%s\n  0 返回\n", terminalText(p.Workspace), terminalText(p.Config), switchText(p.Write), switchText(p.Commands), optionalText(p.MCP), optionalText(p.Exercise), p.Timeout, switchText(p.Summary))
+		fmt.Fprintf(out, "\n启动设置\n  1 工作目录：%s\n  2 资源配置：%s\n  3 写文件：%s\n  4 固定诊断：%s\n  5 MCP 配置：%s\n  6 代码题：%s\n  7 期限：%s\n  8 历史摘要：%s\n  9 网页工具：%s（auto 按需 / off 禁止）\n  0 返回\n", terminalText(p.Workspace), terminalText(p.Config), switchText(p.Write), switchText(p.Commands), optionalText(p.MCP), optionalText(p.Exercise), p.Timeout, switchText(p.Summary), webPolicyText(p.WebPolicy))
 		c, e := read("设置项：")
 		if e != nil {
 			return e
@@ -324,6 +328,13 @@ func editLaunch(p *personal.Launch, read func(string) (string, error), out io.Wr
 			continue
 		case "4":
 			p.Commands = !p.Commands
+			continue
+		case "9":
+			if p.WebPolicy == "off" {
+				p.WebPolicy = "auto"
+			} else {
+				p.WebPolicy = "off"
+			}
 			continue
 		case "8":
 			p.Summary = !p.Summary
@@ -411,4 +422,11 @@ func optionalText(s string) string {
 		return "未配置"
 	}
 	return terminalText(s)
+}
+
+func webPolicyText(p string) string {
+	if p == "" {
+		return "auto"
+	}
+	return terminalText(p)
 }

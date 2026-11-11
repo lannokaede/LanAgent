@@ -44,7 +44,14 @@ func (c *Connections) Close() error {
 	return errors.Join(errs...)
 }
 
-func Load(ctx context.Context, path, workspace string, r *tool.Registry) (connections *Connections, err error) {
+func Load(ctx context.Context, path, workspace string, r *tool.Registry) (*Connections, error) {
+	return LoadWithWebPolicy(ctx, path, workspace, r, "auto")
+}
+
+func LoadWithWebPolicy(ctx context.Context, path, workspace string, r *tool.Registry, policy string) (connections *Connections, err error) {
+	if policy != "auto" && policy != "off" {
+		return nil, errors.New("web policy must be auto or off")
+	}
 	f, e := os.Open(path)
 	if e != nil {
 		return nil, e
@@ -93,7 +100,7 @@ func Load(ctx context.Context, path, workspace string, r *tool.Registry) (connec
 			return nil, fmt.Errorf("MCP %s: %w", server.Name, e)
 		}
 		c.sessions = append(c.sessions, session)
-		if e = Register(ctx, r, session, server.Name, server.Tools); e != nil {
+		if e = registerWithWebPolicy(ctx, r, session, server.Name, server.Tools, policy); e != nil {
 			return nil, e
 		}
 		for _, name := range server.Tools {
@@ -101,7 +108,7 @@ func Load(ctx context.Context, path, workspace string, r *tool.Registry) (connec
 			c.remote[fmt.Sprintf("mcp_%x", h[:10])] = remoteTool{session, name}
 		}
 	}
-	identities := []any{cfg.Servers}
+	identities := []any{cfg.Servers, policy}
 	for _, server := range cfg.Servers {
 		if server.TokenEnv != "" {
 			digest := sha256.Sum256([]byte(os.Getenv(server.TokenEnv)))
@@ -128,6 +135,9 @@ func (t authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // Register resolves only local schema references and publishes only operator-
 // selected tool names. Server tool annotations never grant permissions.
 func Register(ctx context.Context, r *tool.Registry, session *mcp.ClientSession, server string, allowed []string) error {
+	return registerWithWebPolicy(ctx, r, session, server, allowed, "auto")
+}
+func registerWithWebPolicy(ctx context.Context, r *tool.Registry, session *mcp.ClientSession, server string, allowed []string, policy string) error {
 	want := map[string]bool{}
 	for _, n := range allowed {
 		if want[n] {
@@ -175,7 +185,10 @@ func Register(ctx context.Context, r *tool.Registry, session *mcp.ClientSession,
 				return fmt.Errorf("MCP output schema %s: %w", remote.Name, err)
 			}
 		}
-		adapter := mcpTool{outputSchema: outputSchema, session: session, remote: remote.Name, schema: resolved, spec: llm.ToolDef{Name: name, Description: "MCP " + server + "/" + remote.Name + ": " + remote.Description, Parameters: params}}
+		adapter := mcpTool{webDisabled: policy == "off" && (remote.Name == "web_search" || remote.Name == "web_fetch"), outputSchema: outputSchema, session: session, remote: remote.Name, schema: resolved, spec: llm.ToolDef{Name: name, Description: "MCP " + server + "/" + remote.Name + ": " + remote.Description, Parameters: params}}
+		if adapter.webDisabled {
+			adapter.spec.Description = "DISABLED by host web policy. Do not call. " + adapter.spec.Description
+		}
 		if e = r.Register(adapter); e != nil {
 			return e
 		}
@@ -188,6 +201,7 @@ func Register(ctx context.Context, r *tool.Registry, session *mcp.ClientSession,
 }
 
 type mcpTool struct {
+	webDisabled  bool
 	outputSchema *jsonschema.Resolved
 	session      *mcp.ClientSession
 	remote       string
@@ -197,6 +211,9 @@ type mcpTool struct {
 
 func (t mcpTool) Spec() llm.ToolDef { return t.spec }
 func (t mcpTool) Execute(ctx context.Context, raw string) (string, error) {
+	if t.webDisabled {
+		return "", errors.New("web tool disabled by -web-policy off")
+	}
 	if len(raw) > 64<<10 {
 		return "", errors.New("MCP arguments too large")
 	}

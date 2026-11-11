@@ -189,7 +189,7 @@ async function generate() {
     await mkdir(config);
     await mkdir(states);
     await writeFile(path.join(work, fixture.file), fixture.fileContent);
-    const basicConfig = `merchant:\n  enabled: false\nbuilder:\n  enabled: false\nrag:\n  enabled: false\nmemory:\n  enabled: false\ntelemetry:\n  enabled: false\nllm:\n  base_url: ${JSON.stringify(services.base + "/v1")}\n  model: offline-demo\n  timeout: 10s\n  concurrency: 1\n`;
+    const basicConfig = `merchant:\n  enabled: false\nbuilder:\n  enabled: false\nrag:\n  enabled: false\nmemory:\n  enabled: false\ntelemetry:\n  enabled: false\nllm:\n  base_url: ${JSON.stringify(services.base + "/v1")}\n  model: offline-demo\n  timeout: 10s\n  concurrency: 1\n  retry:\n    max_attempts: 1\n`;
     await writeFile(path.join(config, "config.yaml"), basicConfig);
     async function cli(
       name,

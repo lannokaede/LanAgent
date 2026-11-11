@@ -34,11 +34,14 @@
 
 ## 功能
 
-- **执行核心**：模型/工具循环、SSE 工具参数重组、有界并发、取消、超时和调用预算。
+- **执行核心**：模型/工具循环、SSE 工具参数重组、有界并发、取消、超时和调用预算；模型 HTTP 429/502/503/504 有限退避重试，工具副作用不自动重放。
+- **意图分流**：默认规则模式，明确直答支持多轮上下文；可选独立分类模型，超时或格式不兼容时保留 ReAct，路由随检查点恢复。
+- **执行追踪**：任务、分类、摘要、模型尝试和工具 span；JSONL 记录路由来源、排队耗时、重试及已报告用量，恢复后按运行 ID 汇总，缺失用量标为未知。
 - **工具与扩展**：工作目录读取，显式开启的版本检查写入和固定诊断命令，MCP stdio/Streamable HTTP 白名单客户端，Skills 按需披露。
 - **上下文**：保护当前目标与系统规则，成对处理工具调用/结果，历史摘要失败回退裁剪，保留测试哈希和状态等关键字段。
 - **恢复**：成功会话与未完成执行分开存储，在模型/工具边界保存检查点；已完成调用复用结果，不确定执行由人工核对。
 - **知识与面试**：官方 Go / Redis / PostgreSQL 文档采集、来源清单、Embedding、Milvus 检索；16 道基础题、有限追问、结构化反馈、待答题续接及薄弱点复习；面试进度作为对话中的工具状态保存，中途讲解或查资料后可以继续原题。
+- **按需查询网页**：自行抓取 Go / Redis / PostgreSQL 官方文档，SQLite 全文搜索；模型按问题选择工具，再读取页面核实，不需要搜索服务商 Key。支持 `-web-policy off`。见[接入与刷新说明](docs/official-web.md)。
 - **个人记忆**：SQLite WAL 保存显式用户/项目记忆，支持纠正、删除与跨会话读取；可选独立 Milvus 索引与 Outbox 同步，召回后回查当前版本。见[个人记忆说明](docs/personal-memory.md)。
 - **Go 沙箱**：固定编程题的 Docker 测试，禁网、非 root、只读挂载和资源限制，测试证据绑定代码哈希。
 
@@ -108,6 +111,32 @@ go run ./cmd/harness -workspace . -mcp-config examples/harness/mcp.example.json
 交互命令包括 `/menu`、`/sessions`、`/help`、`/exit`、`/paste`、`/status`、`/resume`、`/resolve`、`/discard`。文件写入需提供当前文件 SHA-256；固定诊断命令支持 Go 版本、Git 状态和差异。Skills 放在 `.lanagent/skills/<name>/SKILL.md`，启动时只向模型披露元数据，相关时调用 `load_skill` 读取正文。
 
 完整权限、预算、摘要和恢复语义见 [Harness 使用说明](docs/personal-harness.md)。
+
+### 可复现验收
+
+```bash
+# 本地替身、SQLite、CLI 集成与失败恢复，无模型或向量服务费用
+./scripts/verify-harness.sh -mode offline
+# 真实模型 / Embedding / Milvus / Docker；使用单独的验收集合和会话
+ROUTER_MODEL=YOUR_SCHEMA_COMPATIBLE_MODEL \
+  ./scripts/verify-harness.sh -mode all -config configs/interview \
+  -milvus-url http://127.0.0.1:19530
+```
+
+报告输出到 `.runtime/harness-validation/report.json` 和同名 Markdown。混合分类需要支持严格 JSON Schema 的模型；可通过 `ROUTER_MODEL` 选择现有网关中的兼容模型，默认仍为无需分类调用的规则模式。验收证据、语料数量依据及简历条目对应关系见 [Harness 验证记录](docs/harness-validation.md)。
+
+### 按需查询官方网页
+
+```bash
+mkdir -p bin
+go build -o bin/lanagent-research-mcp ./cmd/research-mcp
+./bin/lanagent-research-mcp index refresh -data-dir .runtime/research
+go run ./cmd/harness -workspace . \
+  -mcp-config examples/harness/official-web-mcp.example.json -timeout 3m \
+  -prompt '搜索 Go 官方文档，读取页面核实 context 的取消机制，给出来源'
+```
+
+搜索查询本地站点索引，核实当前内容时再抓取网页；普通对话可以直接回答。首版覆盖三个官方站点，不是全网搜索。刷新部分失败时已完成页面仍可搜索。关闭网页工具使用 `-web-policy off`；该参数不关闭聊天模型等其他网络连接。详见[网页搜索说明](docs/official-web.md)。
 
 ## 面试知识库
 

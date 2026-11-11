@@ -43,6 +43,7 @@ func (r *Runner) executeTools(ctx context.Context, state *runState) (*runState, 
 func (r *Runner) executeTool(ctx context.Context, state *runState, call llm.ToolCall) (toolErr error) {
 	ctx, span := telemetry.Start(ctx, "agent.tool")
 	defer func() { telemetry.Finish(span, toolErr) }()
+	span.SetAttributes(attribute.String("tool.execution_id", state.executionID(call)))
 	if len(call.Name) <= 128 {
 		span.SetAttributes(attribute.String("tool.name", call.Name))
 	}
@@ -78,6 +79,10 @@ func (r *Runner) executeTool(ctx context.Context, state *runState, call llm.Tool
 			err = errors.Join(err, callCtx.Err())
 		}
 		cancel()
+		var observerErr *llm.ObserverError
+		if errors.As(err, &observerErr) {
+			return err
+		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}

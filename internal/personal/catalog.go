@@ -14,6 +14,7 @@ import (
 
 // Launch stores only non-secret startup choices, never model keys or MCP tokens.
 type Launch struct {
+	WebPolicy        string        `json:"web_policy,omitempty"`
 	Memory           *bool         `json:"memory,omitempty"`
 	MemoryDB         string        `json:"memory_db,omitempty"`
 	MemoryVectors    bool          `json:"memory_vectors,omitempty"`

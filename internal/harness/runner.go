@@ -5,6 +5,7 @@ package harness
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/lannokaede/LanAgent/internal/contextbudget"
 	"github.com/lannokaede/LanAgent/internal/llm"
@@ -14,15 +15,19 @@ import (
 
 // Runner 可共享；每次运行独立创建图和状态，工具目录在启动后只读。
 type Runner struct {
-	provider   llm.Provider
-	summarizer llm.Provider
-	registry   *tool.Registry
-	maxRounds  int
-	budget     contextbudget.Policy
-	format     *llm.ResponseFormat
-	pinned     func() string
-	tools      ToolPolicy
-	recall     func(context.Context, string) (string, error)
+	provider          llm.Provider
+	summarizer        llm.Provider
+	registry          *tool.Registry
+	maxRounds         int
+	budget            contextbudget.Policy
+	format            *llm.ResponseFormat
+	pinned            func() string
+	tools             ToolPolicy
+	recall            func(context.Context, string) (string, error)
+	directReplies     bool
+	routingMode       string
+	classifier        llm.Provider
+	classifierTimeout time.Duration
 }
 
 // WithRecall adds current facts to the request only, never durable run messages.
@@ -87,8 +92,21 @@ func (r *Runner) runGraph(ctx context.Context, state *runState, phase string) ([
 	}
 	if phase == "done" && state.final != nil {
 		state.final.Usage = state.usage
+		state.final.UsageKnown = state.final.UsageKnown && !state.usageIncomplete
 		return state.messages, state.final, nil
 	}
+	ctx = llm.WithObserver(ctx, func(event llm.CallEvent) error {
+		if event.Type == "model_attempt_completed" && !event.UsageKnown {
+			state.usageIncomplete = true
+		}
+		if state.emit == nil {
+			return nil
+		}
+		return state.emit(Event{Type: event.Type, Data: struct {
+			llm.CallEvent
+			Round int `json:"round"`
+		}{event, state.round}})
+	})
 	g := graph.NewStateGraph[*runState]()
 	g.AddNode("model", "模型决策", r.plan)
 	g.AddNode("tools", "按原始顺序执行工具", r.executeTools)
@@ -118,22 +136,26 @@ func (r *Runner) runGraph(ctx context.Context, state *runState, phase string) ([
 	}
 
 	state.final.Usage = state.usage
+	state.final.UsageKnown = state.final.UsageKnown && !state.usageIncomplete
 	return state.messages, state.final, nil
 }
 
 // runState 只在本次串行路径上读写；通过 Checkpoint 保存图边界以供恢复。
 type runState struct {
-	messages  []llm.Message
-	pending   []llm.ToolCall
-	final     *llm.ChatResponse
-	usage     llm.Usage
-	emit      func(Event) error
-	round     int
-	toolCalls int
-	runID     string
-	profile   string
-	running   string
-	save      CheckpointSink
+	messages        []llm.Message
+	pending         []llm.ToolCall
+	final           *llm.ChatResponse
+	usage           llm.Usage
+	emit            func(Event) error
+	round           int
+	toolCalls       int
+	runID           string
+	profile         string
+	running         string
+	save            CheckpointSink
+	route           string
+	routeSource     string
+	usageIncomplete bool
 }
 
 func cloneMessages(src []llm.Message) []llm.Message {

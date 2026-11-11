@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lannokaede/LanAgent/internal/contextbudget"
 	"github.com/lannokaede/LanAgent/internal/llm"
@@ -76,5 +77,27 @@ func TestArtifactHandlesSurviveObservationCompaction(t *testing.T) {
 	var compact map[string]any
 	if json.Unmarshal([]byte(compactObservation(string(raw))), &compact) != nil || compact["artifact_id"] != "artifact-handle" || compact["next_offset"] != float64(2048) {
 		t.Fatal("artifact continuation lost", compact)
+	}
+}
+
+func TestSummaryRecordingFailureStopsBeforeMainModel(t *testing.T) {
+	sentinel := errors.New("journal unavailable")
+	mainCalls := 0
+	summary, _ := llm.NewGateway(contextProvider(func(context.Context, *llm.ChatRequest) (*llm.ChatResponse, error) {
+		return &llm.ChatResponse{Content: "history"}, nil
+	}), time.Second)
+	runner := NewRunner(contextProvider(func(context.Context, *llm.ChatRequest) (*llm.ChatResponse, error) {
+		mainCalls++
+		return &llm.ChatResponse{Content: "unexpected"}, nil
+	}), tool.NewRegistry(), 2).WithSummary(summary).WithBudget(contextbudget.Policy{Window: 1600, OutputReserve: 200, ToolReserve: 100, SummaryTokens: 160})
+	messages := []llm.Message{{Role: llm.RoleSystem, Content: "trusted rules"}, {Role: llm.RoleUser, Content: strings.Repeat("old history ", 500)}, {Role: llm.RoleAssistant, Content: "old answer"}, {Role: llm.RoleUser, Content: "current question"}}
+	_, _, err := runner.RunWithEvents(context.Background(), messages, func(e Event) error {
+		if e.Type == "model_attempt_completed" {
+			return sentinel
+		}
+		return nil
+	})
+	if !errors.Is(err, sentinel) || mainCalls != 0 {
+		t.Fatal("summary recording failure continued execution", err, mainCalls)
 	}
 }

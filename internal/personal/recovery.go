@@ -2,6 +2,7 @@ package personal
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/lannokaede/LanAgent/internal/harness"
 	"github.com/lannokaede/LanAgent/internal/llm"
+	"github.com/lannokaede/LanAgent/internal/observability/telemetry"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type pendingState struct {
@@ -76,13 +79,16 @@ func (s *Session) Pending() *harness.Checkpoint {
 	return &cp
 }
 
-func (s *Session) Resume(ctx context.Context, r *harness.Runner, emit func(harness.Event) error) (*llm.ChatResponse, error) {
+func (s *Session) Resume(ctx context.Context, r *harness.Runner, emit func(harness.Event) error) (_ *llm.ChatResponse, runErr error) {
 	if s.root == nil || s.pending == nil || r == nil {
 		return nil, errors.New("no active checkpoint or runner")
 	}
 	runID := s.pending.RunID
+	attemptID := rand.Text()
+	ctx, span := telemetry.Start(ctx, "agent.task", attribute.String("agent.run_id", runID), attribute.String("agent.attempt_id", attemptID))
+	defer func() { telemetry.Finish(span, runErr) }()
 	record := func(event harness.Event) error {
-		if err := json.NewEncoder(s.trace).Encode(map[string]any{"run_id": runID, "time": time.Now().UTC(), "event": event}); err != nil {
+		if err := json.NewEncoder(s.trace).Encode(map[string]any{"run_id": runID, "attempt_id": attemptID, "time": time.Now().UTC(), "event": event}); err != nil {
 			return err
 		}
 		return s.trace.Sync()
@@ -103,6 +109,17 @@ func (s *Session) Resume(ctx context.Context, r *harness.Runner, emit func(harne
 		return nil, errors.Join(e, record(harness.Event{Type: "run_failed"}))
 	}
 	if e = ctx.Err(); e != nil {
+		return nil, e
+	}
+	stats, e := s.statistics(runID)
+	if e != nil {
+		return nil, e
+	}
+	if stats.Attempts > 0 {
+		response.Usage = stats.ReportedUsage
+		response.UsageKnown = stats.UnknownUsage == 0
+	}
+	if e = record(harness.Event{Type: "run_statistics", Data: stats}); e != nil {
 		return nil, e
 	}
 	if len(updated) < 2 || updated[0].Role != llm.RoleSystem {

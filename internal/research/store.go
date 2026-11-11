@@ -10,10 +10,14 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/lannokaede/LanAgent/internal/corpus"
 	"github.com/lannokaede/LanAgent/internal/filelock"
 )
 
 type Service struct {
+	siteIndex    *SiteIndex
+	crawler      *corpus.Crawler
+	fetchMu      sync.Mutex
 	opts         Options
 	root         *os.Root
 	lock         *os.File
@@ -68,8 +72,12 @@ func Open(ctx context.Context, o Options) (*Service, error) {
 		return nil, errors.New("research data directory is already in use")
 	}
 	c, cancel := context.WithCancel(ctx)
-	s := &Service{opts: o, root: root, lock: lock, ctx: c, cancel: cancel, wake: make(chan struct{}, 1)}
+	s := &Service{crawler: corpus.NewCrawler(), opts: o, root: root, lock: lock, ctx: c, cancel: cancel, wake: make(chan struct{}, 1)}
 	fail := func(e error) (*Service, error) { s.Close(); return nil, e }
+	s.siteIndex, e = OpenSiteIndex(o.Directory)
+	if e != nil {
+		return fail(e)
+	}
 	binding := hashJSON([]any{o.Namespace, o.AllowedHosts})
 	s.data = state{Version: 1, Binding: binding, Sources: map[string]Source{}, Artifacts: map[string]Source{}, Candidates: map[string]Candidate{}, Jobs: map[string]Job{}, Operations: map[string]Operation{}}
 	f, e := root.Open("state.json")
@@ -123,7 +131,11 @@ func (s *Service) Close() error {
 	s.wg.Wait()
 	filelock.Unlock(s.lock)
 	s.lock.Close()
-	return s.root.Close()
+	var indexErr error
+	if s.siteIndex != nil {
+		indexErr = s.siteIndex.Close()
+	}
+	return errors.Join(indexErr, s.root.Close())
 }
 func (s *Service) signal() {
 	select {

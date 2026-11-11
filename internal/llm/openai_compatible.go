@@ -1,8 +1,10 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/lannokaede/LanAgent/internal/engineering"
 	"go.opentelemetry.io/otel/attribute"
@@ -44,6 +46,8 @@ func NewOpenAIProvider(baseURL, model, apiKey string) (*OpenAIProvider, error) {
 // 模块 2：一次模型调用。Gateway 在外层控制单次超时；状态图控制是否再次调用。
 // 使用现代 tools/tool_calls 格式，真实的 JSON Schema 不降级为 __arg1 字符串。
 func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+	metadata := &responseMetadata{}
+	ctx = context.WithValue(ctx, responseMetadataKey{}, metadata)
 	trace.SpanFromContext(ctx).SetAttributes(attribute.String("gen_ai.request.model", p.modelName))
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -81,9 +85,28 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatRespo
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		// LangChainGo sanitizes transport errors into plain text; recover the
+		// per-request typed HTTP result captured before that conversion.
+		if metadata.upstream != nil {
+			return nil, metadata.upstream
+		}
+		var upstream *UpstreamError
+		if errors.As(err, &upstream) {
+			return nil, upstream
+		}
 		return nil, fmt.Errorf("LangChainGo chat: %w", err)
 	}
-	return FromLangChainResponse(result)
+	response, err := FromLangChainResponse(result)
+	if response != nil {
+		var wire struct {
+			Usage *Usage `json:"usage"`
+		}
+		if json.Unmarshal(metadata.body.Bytes(), &wire) == nil && wire.Usage != nil {
+			response.Usage = *wire.Usage
+			response.UsageKnown = true
+		}
+	}
+	return response, err
 }
 
 // 模块 3：HTTP 边界。沿用最大 4 MiB 响应限制；非 2xx 只暴露状态码，
@@ -97,14 +120,27 @@ func (t boundedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		resp.Body.Close()
-		// 让框架按 HTTP 状态分类，同时替换掉不应输出的上游原始正文。
-		body := fmt.Sprintf(`{"error":{"message":"chat API returned HTTP %d","type":"upstream_error"}}`, resp.StatusCode)
-		resp.Body = io.NopCloser(strings.NewReader(body))
-		resp.ContentLength = int64(len(body))
-		return resp, nil
+		upstream := upstreamError(resp.StatusCode, resp.Header)
+		if metadata, ok := req.Context().Value(responseMetadataKey{}).(*responseMetadata); ok {
+			metadata.upstream = upstream
+		}
+		return nil, upstream
 	}
 	resp.Body = &boundedBody{ReadCloser: resp.Body, remaining: 4 << 20}
+	if metadata, ok := req.Context().Value(responseMetadataKey{}).(*responseMetadata); ok {
+		resp.Body = &metadataBody{Reader: io.TeeReader(resp.Body, &metadata.body), Closer: resp.Body}
+	}
 	return resp, nil
+}
+
+type responseMetadataKey struct{}
+type responseMetadata struct {
+	body     bytes.Buffer
+	upstream *UpstreamError
+}
+type metadataBody struct {
+	io.Reader
+	io.Closer
 }
 
 type boundedBody struct {

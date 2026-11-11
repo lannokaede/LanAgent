@@ -1,0 +1,10 @@
+{
+  "servers": [
+    {
+      "name": "official-web",
+      "command": "./bin/lanagent-research-mcp",
+      "args": ["-web", "official", "-data-dir", ".runtime/research"],
+      "tools": ["web_search", "web_fetch", "read_artifact", "search_artifact"]
+    }
+  ]
+}

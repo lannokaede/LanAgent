@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -88,6 +89,10 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, req *ChatRequest, emit 
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		var upstream *UpstreamError
+		if errors.As(err, &upstream) {
+			return nil, upstream
 		}
 		return nil, fmt.Errorf("chat stream request failed")
 	}
@@ -173,6 +178,7 @@ func decodeChatStream(ctx context.Context, reader io.Reader, emit func(string) e
 		}
 		if chunk.Usage != nil {
 			response.Usage = *chunk.Usage
+			response.UsageKnown = true
 		}
 		for _, choice := range chunk.Choices {
 			if choice.Delta.Refusal != "" {

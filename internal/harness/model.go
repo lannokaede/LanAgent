@@ -15,8 +15,20 @@ func (r *Runner) plan(ctx context.Context, s *runState) (*runState, error) {
 	if s.round >= r.maxRounds {
 		return s, fmt.Errorf("agent exceeded maximum model rounds (%d)", r.maxRounds)
 	}
+	if err := r.selectRoute(ctx, s); err != nil {
+		return s, err
+	}
 	s.round++
 	req := &llm.ChatRequest{Messages: cloneMessages(s.messages), Tools: r.registry.ListSpecs(), ResponseFormat: r.format}
+	if s.route == routeDirect {
+		req.Tools = nil
+		const instruction = "For this turn, answer directly using the conversation and current saved memory. No tools are available. If external evidence or execution is needed, state the limitation; do not invent tool results."
+		if len(req.Messages) > 0 && req.Messages[0].Role == llm.RoleSystem {
+			req.Messages[0].Content += "\n" + instruction
+		} else {
+			req.Messages = append([]llm.Message{{Role: llm.RoleSystem, Content: instruction}}, req.Messages...)
+		}
+	}
 	if r.recall != nil {
 		query := ""
 		for _, m := range req.Messages {
@@ -60,6 +72,7 @@ func (r *Runner) plan(ctx context.Context, s *runState) (*runState, error) {
 			}
 		}
 	}
+	ctx = llm.WithPurpose(ctx, "model")
 	var response *llm.ChatResponse
 	var err error
 	if s.emit == nil {
@@ -89,6 +102,9 @@ func (r *Runner) plan(ctx context.Context, s *runState) (*runState, error) {
 	}
 	if response == nil {
 		return s, fmt.Errorf("model returned nil response")
+	}
+	if s.route == routeDirect && len(response.ToolCalls) > 0 {
+		return s, fmt.Errorf("direct reply returned tool calls; no tools were executed")
 	}
 	if len(response.ToolCalls) == 0 && response.Content == "" {
 		return s, fmt.Errorf("model returned empty answer")

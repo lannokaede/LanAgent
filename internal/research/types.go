@@ -23,6 +23,8 @@ type Page struct {
 	Text        string `json:"text,omitempty"`
 	Description string `json:"description,omitempty"`
 	PublishedAt string `json:"published_at,omitempty"`
+	FetchedAt   string `json:"fetched_at,omitempty"`
+	Origin      string `json:"origin,omitempty"`
 }
 type Web interface {
 	Search(context.Context, string, int) ([]Page, error)

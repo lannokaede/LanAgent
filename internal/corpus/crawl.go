@@ -67,10 +67,13 @@ type Crawler struct {
 	Client       *http.Client
 	Delay        time.Duration
 	allowedHosts map[string]bool // test injection; production uses fixed official hosts
+	pageRobots   map[string]string
+	pageLast     map[string]time.Time
+	pageFinal    string
 }
 
 func NewCrawler() *Crawler {
-	return &Crawler{Client: &http.Client{Timeout: 30 * time.Second}, Delay: time.Second}
+	return &Crawler{Client: &http.Client{Timeout: 30 * time.Second, Transport: PublicTransport()}, Delay: time.Second}
 }
 func (c *Crawler) allowed(u *url.URL) bool {
 	if c.allowedHosts != nil {
@@ -85,8 +88,27 @@ func (c *Crawler) get(ctx context.Context, raw string) ([]byte, int, error) {
 	}
 	client := *c.Client
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 5 || req.URL.Host != u.Host || !c.allowed(req.URL) {
+		if len(via) >= 5 || req.URL.Host != u.Host || req.URL.User != nil || !c.allowed(req.URL) {
 			return fmt.Errorf("redirect outside source origin")
+		}
+		if req.URL.EscapedPath() != u.EscapedPath() {
+			rules, ok := c.pageRobots[u.Scheme+"://"+u.Host]
+			if !ok || !robotsAllowed(rules, req.URL.EscapedPath()) {
+				return fmt.Errorf("redirect target requires allowed robots rules")
+			}
+		}
+		if c.pageLast != nil {
+			origin := u.Scheme + "://" + u.Host
+			if delay := c.Delay - time.Since(c.pageLast[origin]); delay > 0 {
+				timer := time.NewTimer(delay)
+				defer timer.Stop()
+				select {
+				case <-req.Context().Done():
+					return req.Context().Err()
+				case <-timer.C:
+				}
+			}
+			c.pageLast[origin] = time.Now()
 		}
 		return nil
 	}
@@ -100,6 +122,7 @@ func (c *Crawler) get(ctx context.Context, raw string) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
+	c.pageFinal = resp.Request.URL.String()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return nil, resp.StatusCode, err
@@ -149,6 +172,10 @@ func (c *Crawler) Crawl(ctx context.Context, sources []Source, dir string) (*Man
 					rules = string(body)
 				}
 				robots[origin] = rules
+				if c.pageRobots == nil {
+					c.pageRobots = map[string]string{}
+				}
+				c.pageRobots[origin] = rules
 			}
 			if !robotsAllowed(rules, u.EscapedPath()) {
 				return fmt.Errorf("robots disallows source")

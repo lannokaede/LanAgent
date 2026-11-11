@@ -18,7 +18,7 @@ go build -o bin/lanagent-research-mcp ./cmd/research-mcp
 ./bin/lanagent-research-mcp -data-dir .runtime/research
 ```
 
-默认 `-web official` 复用现有官方爬虫，只允许 go.dev、redis.io、www.postgresql.org，检查 robots、同源跳转、正文大小和限速。它没有搜索引擎，调用 web_search 会明确提示需要联网供应商；不会伪造搜索结果。
+默认 `-web official` 复用现有官方爬虫，只允许 go.dev、redis.io、www.postgresql.org，检查 robots、同源跳转、正文大小和限速。`web_search` 查询独立 SQLite 站点索引，不访问搜索服务商；使用前运行 `research-mcp index refresh`。`web_fetch` 实时读取页面并更新该索引，不自动写入向量库。初始化、按需调用和关闭策略见[官方网页搜索](official-web.md)。
 
 如需搜索面经与其他白名单页面，配置独立的 Firecrawl Key，然后使用 `-web firecrawl`。它与聊天/Embedding Key 不共用：
 
@@ -60,7 +60,7 @@ printf '\n'
 
 ## 持久化、失败与取消
 
-目录包含 `state.json`、`owner.lock`、`artifacts/*.md`。元数据以受限大小 JSON 快照原子替换并同步文件和目录，进程间锁保证同一目录只有一个所有者。第一版采用本地文件快照而非设计中的可选 SQLite，避免新增数据库部署；不适合作为共享网络文件系统上的多实例服务。请保留整个私有数据卷。
+目录包含 `state.json`、`owner.lock`、`artifacts/*.md`。元数据以受限大小 JSON 快照原子替换并同步文件和目录，进程间锁保证同一目录只有一个所有者。知识任务和来源元数据采用本地文件快照；网页全文索引另存于 `web-index.db`（SQLite，无需数据库服务）；不适合作为共享网络文件系统上的多实例服务。请保留整个私有数据卷。
 
 同一时刻只处理一个入库任务。开始写入前记录 repair 标志；导入期间知识搜索返回 busy。部分失败或取消后，该服务的知识查询保持阻止，修复方式是再次提交**同一候选**并使用新的 execution_id；完成后解除。退出/重启保留未完成任务，重新以写模式启动会继续核对处理；已记录完成的文档版本跳过向量化。
 
@@ -144,4 +144,4 @@ go test -race ./...
 go vet ./...
 ```
 
-测试包括真实 SDK 协议交互、输入 Schema、主机元数据、任务幂等/重启、失败修复、UTF-8 分页、工件篡改、来源限制、HTTP Token/Origin 及核对不重放。外部供应商协议用本机 HTTP 替身验证；真实搜索、账号权限与具体站点提取效果必须在配置 Firecrawl Key 后单独检查。
+测试包括真实 SDK 协议交互、输入 Schema、主机元数据、任务幂等/重启、失败修复、UTF-8 分页、工件篡改、来源限制、HTTP Token/Origin 及核对不重放。外部供应商协议用本机 HTTP 替身验证；官方网页索引和抓取使用本机站点验证；真实官方站点可不配置 Key 单独检查。Firecrawl 搜索与账号权限需另外配置其 Key 验证。

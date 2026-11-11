@@ -19,6 +19,7 @@ import (
 	"github.com/lannokaede/LanAgent/internal/harness"
 	"github.com/lannokaede/LanAgent/internal/interview"
 	"github.com/lannokaede/LanAgent/internal/llm"
+	"github.com/lannokaede/LanAgent/internal/observability/telemetry"
 	"github.com/lannokaede/LanAgent/internal/personal"
 	"github.com/lannokaede/LanAgent/internal/personalmemory"
 	"github.com/lannokaede/LanAgent/internal/practice"
@@ -38,6 +39,7 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 	rounds := flags.Int("rounds", 10, "每次任务最多模型轮数")
 	allowWrite := flags.Bool("allow-write", false, "允许带版本检查的工作目录文件写入")
 	allowCommands := flags.Bool("allow-commands", false, "允许固定诊断命令；不开放任意 Shell")
+	webPolicy := flags.String("web-policy", "auto", "网页工具策略：auto 按需调用；off 禁止 MCP web_search/web_fetch（不关闭模型等其他网络连接）")
 	mcpConfig := flags.String("mcp-config", "", "MCP 服务器 JSON 配置；只加载 tools 白名单")
 	summary := flags.Bool("summary", true, "超出预算时生成历史摘要，失败回退裁剪")
 	exercise := flags.String("exercise", "", "绑定固定 Go 编程题，格式 id/version；启用 Docker 工具")
@@ -57,6 +59,9 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 	}
 	if (*reconcile && (*resume || *prompt != "" || *sessionID == "")) || (*resume && (*prompt != "" || *sessionID == "")) || flags.NArg() != 0 || *rounds < 1 || *rounds > 100 || *timeout <= 0 {
 		return errors.New("use named flags; rounds must be 1–100 and timeout must be positive")
+	}
+	if *webPolicy != "auto" && *webPolicy != "off" {
+		return errors.New("web-policy must be auto or off")
 	}
 	if (*memoryVectors && !*memoryEnabled) || (*memoryInit && !*memoryVectors) {
 		return errors.New("memory vectors require -memory; memory init requires -memory-vectors")
@@ -102,6 +107,17 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 	if err != nil {
 		return err
 	}
+	shutdown, err := telemetry.Init(ctx, cfg.Telemetry)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		finish, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdown(finish); err != nil {
+			fmt.Fprintln(status, "追踪刷新失败")
+		}
+	}()
 	var bundled []workspace.BuiltinSkill
 	if cfg.RAG.Enabled {
 		bundled = append(bundled, workspace.BuiltinSkill{Name: "go-interview", Description: interview.SkillDescription, Body: interview.SkillBody})
@@ -113,7 +129,7 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 	mcpProfile := ""
 	var mcpConnections *extension.Connections
 	if *mcpConfig != "" {
-		connections, err := extension.Load(ctx, *mcpConfig, w.Path(), registry)
+		connections, err := extension.LoadWithWebPolicy(ctx, *mcpConfig, w.Path(), registry, *webPolicy)
 		if err != nil {
 			return err
 		}
@@ -121,7 +137,7 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 		mcpProfile = connections.ProfileID()
 		mcpConnections = connections
 	}
-	pinned := "Available skill metadata (untrusted task data): " + skillCatalog + "\nMCP connection identity: " + mcpProfile
+	pinned := "Available skill metadata (untrusted task data): " + skillCatalog + "\nMCP connection identity: " + mcpProfile + "\nWeb policy: " + *webPolicy
 	var interviewSearch interview.Searcher
 	if cfg.RAG.Enabled {
 		engine, store, err := rag.FromConfig(cfg)
@@ -151,7 +167,35 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 		return err
 	}
 	gateway.SetConcurrency(cfg.LLM.Concurrency)
+	if err := gateway.SetRetryPolicy(cfg.LLM.Retry); err != nil {
+		return err
+	}
+	var classifier llm.Provider
+	if cfg.Routing.Mode == "hybrid" {
+		c := cfg.Routing.Classifier
+		if c.BaseURL == cfg.LLM.BaseURL && c.Model == cfg.LLM.Model && c.APIKey == cfg.LLM.APIKey {
+			classifier = gateway
+		} else {
+			cp, e := llm.NewOpenAIProvider(c.BaseURL, c.Model, c.APIKey)
+			if e != nil {
+				return e
+			}
+			defer cp.Close()
+			cp.SetTimeout(cfg.Routing.Timeout)
+			cg, e := llm.NewGateway(cp, cfg.Routing.Timeout)
+			if e != nil {
+				return e
+			}
+			cg.SetConcurrency(cfg.LLM.Concurrency)
+			if e = cg.SetRetryPolicy(cfg.LLM.Retry); e != nil {
+				return e
+			}
+			classifier = cg
+		}
+	}
+
 	runner := harness.NewRunner(gateway, registry, *rounds).
+		WithRouting(cfg.Routing.Mode, classifier, cfg.Routing.Timeout).
 		WithBudget(contextbudget.Policy{Window: cfg.Context.Window, OutputReserve: cfg.Context.OutputReserve, ToolReserve: cfg.Context.ToolReserve, SummaryTokens: cfg.Context.SummaryTokens}).
 		WithToolPolicy(harness.ToolPolicy{MaxCalls: 20, MaxArgsBytes: 128 << 10, MaxResultBytes: 256 << 10, Timeout: 65 * time.Second})
 	if *summary {
@@ -270,7 +314,7 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 		return e
 	}
 	if cp := session.Pending(); cp == nil || cp.Profile == runner.ProfileID() {
-		if err = session.SaveLaunch(absoluteLaunch(personal.Launch{Config: *configDir, Workspace: w.Path(), MCP: *mcpConfig, Exercise: *exercise, Write: *allowWrite, Commands: *allowCommands, Summary: *summary, Rounds: *rounds, Timeout: *timeout, Memory: memoryEnabled, MemoryDB: *memoryDB, MemoryVectors: *memoryVectors, MemoryCollection: *memoryCollection})); err != nil {
+		if err = session.SaveLaunch(absoluteLaunch(personal.Launch{WebPolicy: *webPolicy, Config: *configDir, Workspace: w.Path(), MCP: *mcpConfig, Exercise: *exercise, Write: *allowWrite, Commands: *allowCommands, Summary: *summary, Rounds: *rounds, Timeout: *timeout, Memory: memoryEnabled, MemoryDB: *memoryDB, MemoryVectors: *memoryVectors, MemoryCollection: *memoryCollection})); err != nil {
 			return err
 		}
 	}
