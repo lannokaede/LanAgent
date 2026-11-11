@@ -50,7 +50,7 @@ func (f *fakeStore) Search(_ context.Context, kb string, _ []float32, _ int) ([]
 func TestEngineFailuresAndSearchIsolation(t *testing.T) {
 	embedder := &fakeEmbedder{}
 	store := &fakeStore{}
-	engine := &Engine{embedder, store}
+	engine := &Engine{Embedder: embedder, Store: store}
 	store.checkErr = errors.New("incompatible model")
 	if _, err := engine.Import(context.Background(), "learning", "a.md", strings.NewReader("原文")); err == nil || embedder.calls != 0 {
 		t.Fatal("must check before billing")

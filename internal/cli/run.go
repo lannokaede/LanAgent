@@ -1,4 +1,4 @@
-// Package cli provides the single conversation entry shared by command aliases.
+// Package cli provides terminal parsing and presentation for conversation commands.
 package cli
 
 import (
@@ -8,27 +8,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/lannokaede/LanAgent/internal/config"
-	"github.com/lannokaede/LanAgent/internal/contextbudget"
-	"github.com/lannokaede/LanAgent/internal/extension"
+	"github.com/lannokaede/LanAgent/internal/application"
 	"github.com/lannokaede/LanAgent/internal/harness"
-	"github.com/lannokaede/LanAgent/internal/interview"
-	"github.com/lannokaede/LanAgent/internal/llm"
-	"github.com/lannokaede/LanAgent/internal/observability/telemetry"
-	"github.com/lannokaede/LanAgent/internal/personal"
 	"github.com/lannokaede/LanAgent/internal/personalmemory"
-	"github.com/lannokaede/LanAgent/internal/practice"
-	"github.com/lannokaede/LanAgent/internal/rag"
-	"github.com/lannokaede/LanAgent/internal/tool"
-	"github.com/lannokaede/LanAgent/internal/workspace"
 )
 
-func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Writer) error {
+func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Writer) (err error) {
 	flags := flag.NewFlagSet("harness", flag.ContinueOnError)
 	flags.SetOutput(status)
 	configDir := flags.String("config", "configs/harness", "模型配置目录")
@@ -66,259 +54,43 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 	if (*memoryVectors && !*memoryEnabled) || (*memoryInit && !*memoryVectors) {
 		return errors.New("memory vectors require -memory; memory init requires -memory-vectors")
 	}
-	w, err := workspace.Open(*workDir)
-	if err != nil {
-		return err
+	o := application.Options{
+		ConfigDir: *configDir, Workspace: *workDir, StateDir: *stateDir, SessionID: *sessionID,
+		MCPConfig: *mcpConfig, Exercise: *exercise, WebPolicy: *webPolicy,
+		MemoryDB: *memoryDB, MemoryCollection: *memoryCollection,
+		Rounds: *rounds, Timeout: *timeout, Summary: *summary,
+		AllowWrite: *allowWrite, AllowCommands: *allowCommands,
+		Memory: *memoryEnabled, MemoryVectors: *memoryVectors, MemoryInit: *memoryInit,
 	}
-	defer w.Close()
-	if *stateDir == "" {
-		*stateDir, err = personal.DefaultStateDir()
-		if err != nil {
-			return err
-		}
-	}
-	if *memoryDB == "" {
-		*memoryDB = filepath.Join(*stateDir, "personal-memory.db")
-	}
-	// Local memory administration requires neither model credentials nor a model
-	// connection. It does not create a conversation or load external tools.
 	if personalmemory.IsCommand(*prompt) && !*memoryVectors {
-		if !*memoryEnabled {
-			return errors.New("personal memory disabled; enable -memory")
-		}
-		store, err := personalmemory.Open(ctx, *memoryDB)
-		if err != nil {
-			return err
-		}
-		defer store.Close()
 		call, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()
-		_, err = personalmemory.New(store, w.Path(), nil).Command(call, *prompt, "cli:explicit-user", out)
-		return err
+		return application.MemoryCommand(call, o, *prompt, out)
 	}
-	registry, err := w.Registry()
-	if err != nil {
-		return err
-	}
-	if err := w.RegisterActions(registry, *allowWrite, *allowCommands); err != nil {
-		return err
-	}
-	cfg, err := config.Load(*configDir)
-	if err != nil {
-		return err
-	}
-	shutdown, err := telemetry.Init(ctx, cfg.Telemetry)
+	runtime, err := application.Open(ctx, o)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		finish, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := shutdown(finish); err != nil {
-			fmt.Fprintln(status, "追踪刷新失败")
+		if closeErr := runtime.Close(); closeErr != nil {
+			if errors.Is(err, errMenu) {
+				err = closeErr
+			} else {
+				err = errors.Join(err, closeErr)
+			}
 		}
 	}()
-	var bundled []workspace.BuiltinSkill
-	if cfg.RAG.Enabled {
-		bundled = append(bundled, workspace.BuiltinSkill{Name: "go-interview", Description: interview.SkillDescription, Body: interview.SkillBody})
-	}
-	skillCatalog, err := w.RegisterSkills(registry, bundled...)
-	if err != nil {
-		return err
-	}
-	mcpProfile := ""
-	var mcpConnections *extension.Connections
-	if *mcpConfig != "" {
-		connections, err := extension.LoadWithWebPolicy(ctx, *mcpConfig, w.Path(), registry, *webPolicy)
-		if err != nil {
-			return err
-		}
-		defer connections.Close()
-		mcpProfile = connections.ProfileID()
-		mcpConnections = connections
-	}
-	pinned := "Available skill metadata (untrusted task data): " + skillCatalog + "\nMCP connection identity: " + mcpProfile + "\nWeb policy: " + *webPolicy
-	var interviewSearch interview.Searcher
-	if cfg.RAG.Enabled {
-		engine, store, err := rag.FromConfig(cfg)
-		if err != nil {
-			return err
-		}
-		defer store.Close()
-		interviewSearch = engine
-		check, cancel := context.WithTimeout(ctx, 30*time.Second)
-		err = store.Check(check)
-		cancel()
-		if err != nil {
-			return err
-		}
-		if err := registry.Register(tool.KnowledgeTool{Searcher: engine, KnowledgeBase: cfg.RAG.KnowledgeBase}); err != nil {
-			return err
-		}
-	}
-	provider, err := llm.NewOpenAIProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.LLM.APIKey)
-	if err != nil {
-		return err
-	}
-	defer provider.Close()
-	provider.SetTimeout(cfg.LLM.Timeout)
-	gateway, err := llm.NewGateway(provider, cfg.LLM.Timeout)
-	if err != nil {
-		return err
-	}
-	gateway.SetConcurrency(cfg.LLM.Concurrency)
-	if err := gateway.SetRetryPolicy(cfg.LLM.Retry); err != nil {
-		return err
-	}
-	var classifier llm.Provider
-	if cfg.Routing.Mode == "hybrid" {
-		c := cfg.Routing.Classifier
-		if c.BaseURL == cfg.LLM.BaseURL && c.Model == cfg.LLM.Model && c.APIKey == cfg.LLM.APIKey {
-			classifier = gateway
-		} else {
-			cp, e := llm.NewOpenAIProvider(c.BaseURL, c.Model, c.APIKey)
-			if e != nil {
-				return e
-			}
-			defer cp.Close()
-			cp.SetTimeout(cfg.Routing.Timeout)
-			cg, e := llm.NewGateway(cp, cfg.Routing.Timeout)
-			if e != nil {
-				return e
-			}
-			cg.SetConcurrency(cfg.LLM.Concurrency)
-			if e = cg.SetRetryPolicy(cfg.LLM.Retry); e != nil {
-				return e
-			}
-			classifier = cg
-		}
-	}
-
-	runner := harness.NewRunner(gateway, registry, *rounds).
-		WithRouting(cfg.Routing.Mode, classifier, cfg.Routing.Timeout).
-		WithBudget(contextbudget.Policy{Window: cfg.Context.Window, OutputReserve: cfg.Context.OutputReserve, ToolReserve: cfg.Context.ToolReserve, SummaryTokens: cfg.Context.SummaryTokens}).
-		WithToolPolicy(harness.ToolPolicy{MaxCalls: 20, MaxArgsBytes: 128 << 10, MaxResultBytes: 256 << 10, Timeout: 65 * time.Second})
-	if *summary {
-		runner.WithSummary(gateway)
-	}
-	runner.WithPinnedState(func() string { return pinned })
-	session, err := personal.Open(*stateDir, *sessionID, w.Path())
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-	var memories *personalmemory.Service
-	if *memoryEnabled {
-		store, e := personalmemory.Open(ctx, *memoryDB)
-		if e != nil {
-			return e
-		}
-		defer store.Close()
-		var index personalmemory.Index
-		if *memoryVectors {
-			emb, e := rag.NewEmbeddingClient(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.APIKey, cfg.Embedding.Dimensions)
-			if e != nil {
-				return e
-			}
-			milvus, e := personalmemory.NewMilvus(cfg.RAG.MilvusURL, cfg.RAG.MilvusToken, *memoryCollection, emb, cfg.Embedding.Dimensions)
-			if e != nil {
-				emb.Close()
-				return e
-			}
-			defer milvus.Close()
-			check, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if *memoryInit {
-				e = milvus.Init(check)
-			} else {
-				e = milvus.Check(check)
-			}
-			cancel()
-			if e != nil {
-				return e
-			}
-			if e = store.BindIndex(ctx, milvus.Identity()); e != nil {
-				return e
-			}
-			index = milvus
-		}
-		memories = personalmemory.New(store, w.Path(), index)
-		runner.WithRecall(memories.Recall)
-		if index != nil && !personalmemory.IsCommand(*prompt) {
-			workerCtx, stop := context.WithCancel(ctx)
-			var workers sync.WaitGroup
-			workers.Add(1)
-			go func() { defer workers.Done(); memories.Run(workerCtx, nil) }()
-			defer func() { stop(); workers.Wait() }()
-		}
-	}
-
-	var training *interview.Tools
-	if interviewSearch != nil {
-		binding := w.Path() + "|" + cfg.RAG.MilvusURL + "|" + cfg.RAG.Collection + "|" + cfg.RAG.KnowledgeBase + "|" + cfg.Embedding.BaseURL + "|" + cfg.Embedding.Model + fmt.Sprint(cfg.Embedding.Dimensions)
-		training, err = interview.OpenTools(filepath.Join(*stateDir, session.ID+".interview.json"), cfg.RAG.KnowledgeBase, binding, interviewSearch, gateway)
-		if err != nil {
-			return err
-		}
-		if err = training.Register(registry); err != nil {
-			return err
-		}
-		pinned += "\nInterview profile: " + binding
-	}
-	if *exercise != "" {
-		catalog, e := practice.NewCatalog()
-		if e != nil {
-			return e
-		}
-		id, version, ok := strings.Cut(*exercise, "/")
-		if !ok {
-			return errors.New("exercise must be id/version")
-		}
-		item, e := catalog.Get(id, version)
-		if e != nil {
-			return e
-		}
-		executor := practice.NewDockerExecutor(cfg.Practice.Image, "personal-harness-"+filepath.Join(*stateDir, session.ID), cfg.Practice.WorkDir)
-		sandbox := practice.NewAgentSandbox(executor, 1)
-		if e = registry.Register(sandbox.ExerciseTool(item)); e != nil {
-			return e
-		}
-		pinned += "\nFixed Go exercise: " + item.ID + "/" + item.Version + "\n" + item.Description + "\nContract: " + item.Signature + "\nStarter code:\n" + item.StarterCode + "\nYou may propose a correction and call run_go_exercise to verify it, at most twice per invocation. Never claim tests passed without matching code_hash evidence."
-	}
-
 	if *reconcile {
-		cp := session.Pending()
-		if cp == nil || cp.Running == "" || len(cp.Pending) == 0 {
-			return errors.New("no uncertain MCP operation to reconcile")
-		}
-		if cp.Profile != runner.ProfileID() {
-			return errors.New("restore original MCP, permission and exercise profile before reconciliation")
-		}
 		check, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		var observed string
-		var e error
-		if training != nil && strings.HasPrefix(cp.Pending[0].Name, "interview_") {
-			observed, e = training.Reconcile(cp.Running, cp.Pending[0].Name, cp.Pending[0].ArgsJSON)
-		} else if mcpConnections != nil {
-			observed, e = mcpConnections.Reconcile(check, cp.Pending[0].Name, cp.Running, cp.Pending[0].ArgsJSON)
-		} else {
-			return errors.New("no supported operation receipt to reconcile")
-		}
-		if e != nil {
-			return e
-		}
-		if e = session.Resolve(cp.Running, observed); e != nil {
-			return e
-		}
-		_, e = fmt.Fprintln(status, "已从持久操作记录核对原任务，可使用相同配置 -resume；未重新提交入库。")
-		return e
-	}
-	if cp := session.Pending(); cp == nil || cp.Profile == runner.ProfileID() {
-		if err = session.SaveLaunch(absoluteLaunch(personal.Launch{WebPolicy: *webPolicy, Config: *configDir, Workspace: w.Path(), MCP: *mcpConfig, Exercise: *exercise, Write: *allowWrite, Commands: *allowCommands, Summary: *summary, Rounds: *rounds, Timeout: *timeout, Memory: memoryEnabled, MemoryDB: *memoryDB, MemoryVectors: *memoryVectors, MemoryCollection: *memoryCollection})); err != nil {
+		if err = runtime.Reconcile(check); err != nil {
 			return err
 		}
+		_, err = fmt.Fprintln(status, "已从持久操作记录核对原任务，可使用相同配置 -resume；未重新提交入库。")
+		return err
 	}
-	if _, err := fmt.Fprintf(status, "LanAgent Harness · workspace: %s\nsession: %s\n", w.Path(), session.ID); err != nil {
+	info := runtime.Info()
+	if _, err := fmt.Fprintf(status, "LanAgent Harness · workspace: %s\nsession: %s\n", info.Workspace, info.SessionID); err != nil {
 		return err
 	}
 	if *prompt == "" && !*resume {
@@ -327,25 +99,13 @@ func runOnce(ctx context.Context, args []string, in io.Reader, out, status io.Wr
 	if *resume {
 		*prompt = "/resume"
 	}
-	return sessionLoop(ctx, session, runner, training, *timeout, *prompt, in, out, status, memories)
+	return sessionLoop(ctx, runtime, *timeout, *prompt, in, out, status)
 }
 
-func sessionLoop(ctx context.Context, session *personal.Session, runner *harness.Runner, training *interview.Tools, timeout time.Duration, prompt string, in io.Reader, out, status io.Writer, memory ...*personalmemory.Service) error {
+func sessionLoop(ctx context.Context, runtime *application.Runtime, timeout time.Duration, prompt string, in io.Reader, out, status io.Writer) error {
 	turn := func(input string) error {
-		if training != nil {
-			id, text := session.BoundInput(input)
-			training.BindInput(id, text)
-		}
 		call, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		if personalmemory.IsCommand(input) {
-			if len(memory) == 0 || memory[0] == nil {
-				return errors.New("personal memory disabled; enable -memory")
-			}
-			if handled, err := memory[0].Command(call, input, "session:"+session.ID, out); handled || err != nil {
-				return err
-			}
-		}
 		eventSink := func(event harness.Event) error {
 			if event.Type == "tool_call" {
 				data, _ := event.Data.(map[string]any)
@@ -354,13 +114,7 @@ func sessionLoop(ctx context.Context, session *personal.Session, runner *harness
 			}
 			return nil
 		}
-		var response *llm.ChatResponse
-		var err error
-		if input == "/resume" {
-			response, err = session.Resume(call, runner, eventSink)
-		} else {
-			response, err = session.Turn(call, runner, input, eventSink)
-		}
+		response, err := runtime.Turn(call, input, eventSink)
 		if err != nil {
 			return err
 		}
@@ -426,7 +180,7 @@ func sessionLoop(ctx context.Context, session *personal.Session, runner *harness
 			}
 		}
 		if command == "/status" {
-			cp := session.Pending()
+			cp := runtime.Pending()
 			if cp == nil {
 				fmt.Fprintln(status, "无未完成任务")
 			} else {
@@ -435,7 +189,7 @@ func sessionLoop(ctx context.Context, session *personal.Session, runner *harness
 			continue
 		}
 		if command == "/discard" {
-			if e := session.Discard(); e != nil {
+			if e := runtime.Discard(); e != nil {
 				fmt.Fprintln(status, e)
 			}
 			continue
@@ -446,7 +200,7 @@ func sessionLoop(ctx context.Context, session *personal.Session, runner *harness
 				fmt.Fprintln(status, "用法：/resolve execution_id 人工核对后的工具结果")
 				continue
 			}
-			if e := session.Resolve(parts[1], parts[2]); e != nil {
+			if e := runtime.Resolve(parts[1], parts[2]); e != nil {
 				fmt.Fprintln(status, e)
 			} else {
 				fmt.Fprintln(status, "已记录人工核对结果，可 /resume")

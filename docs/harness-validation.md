@@ -1,6 +1,6 @@
 # Harness 能力与验收记录
 
-验证日期：2026-11-11（America/Los_Angeles）。本轮目标是补齐当前五项简历能力的集成与验证，并增强规则/分类路由、模型有限重试和执行追踪。保留原有会话、工具权限及数据存储职责。
+验证日期：2026-11-11（America/Los_Angeles）。记录执行路由、模型有限重试、上下文、记忆、恢复与追踪的可复现验证。模块职责与状态提交顺序见[执行架构](architecture.md)。
 
 ## 如何复现
 
@@ -20,7 +20,7 @@ ROUTER_MODEL=YOUR_SCHEMA_COMPATIBLE_MODEL \
 ROUTER_MODEL=YOUR_SCHEMA_COMPATIBLE_MODEL \
   ./scripts/verify-harness.sh -mode live -only live_hybrid_classification
 
-# 核验已有语料快照；完整抓取流程见 README 的面试知识库部分
+# 核验已有语料快照；完整抓取流程见 README 的知识库构建部分
 ./scripts/verify-harness.sh -mode offline -only corpus_snapshot \
   -corpus-dir YOUR_CORPUS_DIRECTORY
 ```
@@ -29,9 +29,9 @@ ROUTER_MODEL=YOUR_SCHEMA_COMPATIBLE_MODEL \
 
 分类真实验收预算为 15 秒，应用默认仍为规则模式；混合分类的默认预算为 3 秒。模型名称用于标识本次实际配置，不代表成本或质量比较。本轮没有证明增加分类模型会降低总费用或延迟。
 
-## 五项能力对应
+## 能力与验证对应
 
-| 简历能力 | 实现位置 | 自动化验证 | 真实验证 |
+| 能力 | 实现位置 | 自动化验证 | 真实验证 |
 | --- | --- | --- | --- |
 | 有界 ReAct、工具治理与分流 | `internal/harness`、`internal/extension` | 路由、协议、预算、白名单及参数校验测试；非法分类回退；直答拒绝工具 | 两轮明确直答；独立分类模型输出直答决策；真实文件读取 |
 | 上下文预算与摘要降级 | `internal/contextbudget`、`internal/harness/context.go` | 完整工具组裁剪、摘要失败回退、关键验证字段保留 | 注入合成历史触发一次真实摘要并完成回答 |
@@ -97,3 +97,20 @@ go vet ./...
 ```
 
 用例覆盖不同并发调用的状态隔离、日志失败不进入分类/摘要回退、旧检查点与部分工具批次恢复。完整终端演示另外将重试次数配置为 1，以稳定展示持续失败后的人工恢复步骤。
+
+## 结构与生命周期回归
+
+应用装配集中于 `internal/application`，CLI 负责参数和终端交互；验收编排集中于 `internal/acceptance`，命令保留参数与信号。新增回归覆盖初始化失败释放会话锁、重复开启/关闭、取消后的遥测刷新、损坏检查点拒绝执行，以及验收失败报告与资源隔离。RAG 配置构造的 Engine 统一拥有并关闭 Embedding 和 Milvus 客户端。
+
+核心包的依赖方向由 `internal/architecture` 自动检查；CI 在测试前检查 gofmt。上述变化不改变五项能力的职责，完整测试与实际重验结果以对应提交和报告为准。
+
+结构调整后的重验同样使用上文的模型、Embedding、Milvus 及 Docker 环境，未改个人配置与业务集合。报告保存在 `.runtime/harness-validation/`：
+
+| 验证 | 实际结果 | 记录 |
+| --- | --- | --- |
+| 离线回归与语料 | 14 个包、192 项测试通过，1 项 Docker 开关测试跳过；17 文档 / 1,206 片段 | `engineering-acceptance.json` |
+| 多轮直答、混合分类、文件恢复、历史摘要 | 四项真实场景通过；恢复前后 read_file 均为 1 次 | `engineering-acceptance.json` |
+| 记忆与 RAG | 首轮 Embedding 请求连接失败；单项重跑通过，旧版本/删除过滤、小样本入库召回及集合清理均有效，耗时 10.284 秒 | 首轮同上；`engineering-vectors-retry.json` |
+| 模型与 Docker | 首轮模型流请求连接失败；单项重跑通过，1 次沙箱调用、2 次模型尝试，耗时 13.473 秒 | 首轮同上；`engineering-docker-retry.json` |
+
+首轮整体报告的 `success=false` 保持原样，两个重跑报告分别为 `true`。离线开关测试的跳过状态单独保留，Docker 的实际执行由真实服务场景确认。

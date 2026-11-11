@@ -93,7 +93,7 @@ func run(ctx context.Context, args []string, status io.Writer) error {
 		if e != nil {
 			return e
 		}
-		defer store.Close()
+		defer engine.Close()
 		check, cancel := context.WithTimeout(ctx, 30*time.Second)
 		if *initStore {
 			e = store.Init(check)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/lannokaede/LanAgent/internal/config"
@@ -19,23 +20,40 @@ type VectorStore interface {
 
 // 模块 1：RAG 编排。复用 LangChainGo Embedder 边界，不包含 Agent 循环。
 type Engine struct {
-	Embedder embeddings.Embedder
-	Store    VectorStore
+	Embedder       embeddings.Embedder
+	Store          VectorStore
+	closeResources func()
 }
 
+// FromConfig creates an Engine that owns both HTTP clients. Close the Engine,
+// not only the returned store; the store remains exposed for collection setup.
 func FromConfig(cfg *config.Config) (*Engine, *MilvusStore, error) {
+	if cfg == nil || !knowledgeBaseName.MatchString(cfg.RAG.KnowledgeBase) {
+		return nil, nil, fmt.Errorf("invalid configured knowledge base")
+	}
 	embedding, err := NewEmbeddingClient(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.APIKey, cfg.Embedding.Dimensions)
 	if err != nil {
 		return nil, nil, err
 	}
 	store, err := NewMilvusStore(cfg.RAG.MilvusURL, cfg.RAG.MilvusToken, cfg.RAG.Collection, cfg.Embedding.Dimensions, embedding.Identity())
 	if err != nil {
+		embedding.Close()
 		return nil, nil, err
 	}
-	if !knowledgeBaseName.MatchString(cfg.RAG.KnowledgeBase) {
-		return nil, nil, fmt.Errorf("invalid configured knowledge base")
+	engine := &Engine{Embedder: embedding, Store: store, closeResources: sync.OnceFunc(func() {
+		store.Close()
+		embedding.Close()
+	})}
+	return engine, store, nil
+}
+
+// Close releases clients created by FromConfig and is safe to call repeatedly.
+// Engines assembled with injected dependencies leave ownership with the caller.
+// Stop users of the Engine before closing it; Close does not abort active calls.
+func (e *Engine) Close() {
+	if e != nil && e.closeResources != nil {
+		e.closeResources()
 	}
-	return &Engine{embedding, store}, store, nil
 }
 
 // 模块 2：读取 → 分块 → 检查集合 → 批量向量化 → 写库。任何失败都不能宣称 indexed。

@@ -13,6 +13,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Check Go formatting
+        run: |
+          unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
       - run: go mod download
       - run: go test ./...
       - run: go test -race ./...

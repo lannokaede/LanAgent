@@ -2,6 +2,8 @@
 
 调研日期：2026-11-03。代码基线：`e3b031e`。本文是设计方案，明确区分现有能力、已有实现但尚未工具化的能力、待开发能力；本文件保留原调研基线；第一阶段已在后续实现，范围与实际限制以[研究 MCP 使用说明](research-mcp.md)为准，后续统一对话改造还已接入原生 interview_start/status/next/submit_answer 与 review_list，见[统一面试训练](knowledge-and-interview.md)。以下清单按调研时基线保留，不能据其旧状态判断当前实现。第三方兼容性调研见[配套研究](research/tool-ecosystem-2026-11-03.md)。
 
+
+当前目录职责、资源生命周期与恢复约束见[执行架构](architecture.md)，当前可执行能力与证据见[验收记录](harness-validation.md)。
 ## 1. 建议的方向
 
 把 LanAgent 做成“能够查资料、维护知识、验证代码、安排训练的 Go 后端学习与研究 Harness”。模拟面试是其中一个使用入口。最值得先形成的任务链是：

@@ -133,6 +133,7 @@ func runIndexed(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	defer engine.Close()
 	duration := 60 * time.Second
 	if args[0] == "import" {
 		duration = 10 * time.Minute

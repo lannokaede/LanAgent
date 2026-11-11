@@ -54,7 +54,7 @@ func runCorpus(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer engine.Close()
 	if args[0] == "clear" {
 		if *confirm == "" || *confirm != cfg.RAG.KnowledgeBase {
 			return fmt.Errorf("-confirm-kb must equal the configured namespace")
