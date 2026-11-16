@@ -55,6 +55,15 @@ func FromLangChainResponse(result *llms.ContentResponse) (*ChatResponse, error) 
 		return nil, fmt.Errorf("chat response contains no choices")
 	}
 	c := result.Choices[0]
+	// OpenAI-compatible non-streaming responses must obey the same terminal
+	// contract as SSE. A token limit or content filter can leave apparently valid
+	// text/arguments, but those must not become a completed answer or tool batch.
+	// An omitted reason remains compatible with existing provider fixtures.
+	switch c.StopReason {
+	case "", "stop", "tool_calls":
+	default:
+		return nil, fmt.Errorf("model response incomplete or blocked")
+	}
 	r := &ChatResponse{Content: c.Content, FinishReason: c.StopReason}
 	for _, call := range c.ToolCalls {
 		if call.ID == "" || call.FunctionCall == nil || call.FunctionCall.Name == "" {
