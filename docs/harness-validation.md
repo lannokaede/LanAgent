@@ -114,3 +114,5 @@ go vet ./...
 | 模型与 Docker | 首轮模型流请求连接失败；单项重跑通过，1 次沙箱调用、2 次模型尝试，耗时 13.473 秒 | 首轮同上；`engineering-docker-retry.json` |
 
 首轮整体报告的 `success=false` 保持原样，两个重跑报告分别为 `true`。离线开关测试的跳过状态单独保留，Docker 的实际执行由真实服务场景确认。
+
+2026-11-15 的模型等待队列、MCP HTTP 准入/退出与统一交付检查结果见[服务端工程约束验收](service-engineering-validation.md)，各次报告按日期分别保留。

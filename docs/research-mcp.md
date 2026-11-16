@@ -91,6 +91,17 @@ go run ./cmd/harness -workspace . \
   -prompt '抓取 https://go.dev/blog/context，查看正文并准备官方知识候选，入库后给出任务 ID。'
 ```
 
+HTTP 入口与实际工具执行分别设置容量；GET SSE 长连接使用独立的容量，避免空闲推送连接占满工具入口。超过入口容量返回 HTTP 503 与 `Retry-After: 1`；工具并发已满时返回明确的 MCP 工具错误。入口快速拒绝，不在内存中无限排队。
+
+| 参数 | 默认值 | 约束 |
+| --- | --- | --- |
+| `-http-concurrency` | 8 | POST 类请求、实际工具回调、GET SSE 各有独立的同等上限；按进程生效 |
+| `-http-request-timeout` | 1m | 请求与工具期限，GET SSE 的持续时间单独管理 |
+| `-http-session-timeout` | 5m | SDK 空闲会话回收期限 |
+| `-http-shutdown-timeout` | 5s | 正常排空预算，超时取消并强制断连 |
+
+Streamable HTTP 会话会脱离单个 HTTP 请求的取消上下文，传输模块因此显式关联请求和工具取消，并在回调真正返回后释放工具槽位。关闭时先停止准入，等待 HTTP 请求排空；预算耗尽则取消并断连，随后关闭 SDK 会话并等待工具退出，最后由命令关闭业务存储。工具必须响应 context，排空预算并不意味着可以强制终止任意 Go 函数。持久入库任务由业务 worker 管理，HTTP 请求只接收任务和查询进度。
+
 示例白名单包含写工具，所以服务需要 `-allow-knowledge-write`；只读部署需同时从客户端白名单删掉 knowledge_commit/job_cancel，否则当前客户端会报告缺少白名单工具。HTTP Key 不写入 GitHub，`FIRECRAWL_API_KEY` 只给服务端，客户端只需要研究 MCP 的访问 Token。
 
 stdio 也可配置：

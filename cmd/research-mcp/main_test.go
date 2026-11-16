@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/lannokaede/LanAgent/internal/mcphttp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"io"
 	"net/http"
@@ -13,7 +14,11 @@ import (
 
 func TestHTTPAuthenticationAndOrigin(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1"}, nil)
-	handler := httpHandler(server, "test-token-long-enough-12345", []string{"https://allowed.example"})
+	handler, err := mcphttp.New(server, mcphttp.Options{Token: "test-token-long-enough-12345", AllowedOrigins: []string{"https://allowed.example"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handler.Close()
 	for _, tc := range []struct {
 		auth, origin string
 		want         int
@@ -29,7 +34,7 @@ func TestHTTPAuthenticationAndOrigin(t *testing.T) {
 	}
 }
 func TestInvalidModesDoNotCreateStore(t *testing.T) {
-	for _, args := range [][]string{{"-allow-knowledge-write"}, {"-init-store"}, {"-web", "unknown"}} {
+	for _, args := range [][]string{{"-allow-knowledge-write"}, {"-init-store"}, {"-web", "unknown"}, {"-http-concurrency", "0"}, {"-http-request-timeout", "0s"}, {"-http-session-timeout", "-1s"}, {"-http-shutdown-timeout", "0s"}} {
 		if e := run(context.Background(), args, io.Discard); e == nil {
 			t.Fatal("invalid flags accepted", args)
 		}
@@ -51,7 +56,12 @@ func TestStreamableHTTPHandshakeAndTool(t *testing.T) {
 	mcp.AddTool(server, &mcp.Tool{Name: "ping"}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
 		return nil, map[string]any{"status": "pong"}, nil
 	})
-	httpServer := httptest.NewServer(httpHandler(server, "long-test-token-1234567890", nil))
+	handler, err := mcphttp.New(server, mcphttp.Options{Token: "long-test-token-1234567890"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handler.Close()
+	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
 	client := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "1"}, nil)
 	session, e := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: httpServer.URL + "/mcp", HTTPClient: &http.Client{Transport: authRoundTripper{"long-test-token-1234567890"}}}, nil)

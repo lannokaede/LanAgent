@@ -4,6 +4,7 @@ llm:
   model: ""
   timeout: 60s
   concurrency: 1
+  queue_limit: 32 # waiting requests; 0 rejects immediately when all slots are busy
   retry:
     max_attempts: 3
     base_delay: 250ms

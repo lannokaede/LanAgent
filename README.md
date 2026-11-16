@@ -4,7 +4,7 @@
 
 LangGraphGo 负责模型—工具循环；项目实现模型调用策略、工具执行约束、会话恢复和记忆同步。面试与资料研究作为工具接入同一执行流程。
 
-[快速开始](#快速开始) · [工程设计](docs/architecture.md) · [验收记录](docs/harness-validation.md) · [完整使用说明](docs/personal-harness.md)
+[快速开始](#快速开始) · [工程设计](docs/architecture.md) · [开发约束](docs/development.md) · [验收记录](docs/harness-validation.md) · [完整使用说明](docs/personal-harness.md)
 
 ## 核心设计
 
@@ -13,7 +13,8 @@ LangGraphGo 负责模型—工具循环；项目实现模型调用策略、工�
 | 模型可能给出错误参数或连续调用工具 | 注册表固定能力；白名单、Schema 校验、模型轮次与工具调用预算约束执行 | [执行核心](internal/harness)、[工具策略测试](internal/harness/policy_test.go) |
 | 请求中断时，工具可能已经产生效果 | 执行前保存标记，结果完成后保存观察；恢复时复用已完成结果，未知结果先核对收据 | [会话恢复](internal/personal/recovery.go)、[恢复测试](internal/personal/recovery_test.go) |
 | 记忆已纠正，但向量库仍返回旧内容 | SQLite 保存事实，事务 Outbox 同步索引；召回后回查版本与删除状态 | [记忆模块](internal/personalmemory)、[一致性测试](internal/personalmemory/service_test.go) |
-| 模型接口限流，重试又可能放大负载 | 共享并发槽位，有界退避；退避释放槽位，所有尝试共享调用期限 | [模型网关](internal/llm/gateway.go)、[重试测试](internal/llm/retry_test.go) |
+| 模型接口限流，重试又可能放大负载 | 限制在途与等待容量，队满快速拒绝；退避释放槽位，所有尝试共享调用期限 | [模型网关](internal/llm/gateway.go)、[重试测试](internal/llm/retry_test.go) |
+| 工具服务突发请求或退出时仍有调用 | HTTP / 工具调用与 GET SSE 分别限制容量；停止准入、排空与取消后等待退出，再关闭存储 | [MCP HTTP 传输](internal/mcphttp)、[并发与停机测试](internal/mcphttp) |
 | 长对话与摘要故障影响后续执行 | 按完整工具消息组裁剪，保留目标与验证字段；摘要失败回退裁剪 | [上下文处理](internal/harness/context.go)、[上下文测试](internal/harness/context_test.go) |
 
 这些约束落实在宿主代码中。规则与可选分类模型决定回答路径，工具权限由注册表和适配器独立检查。完整取舍、失败处理和状态提交顺序见[工程设计](docs/architecture.md)。
@@ -89,9 +90,7 @@ go run ./cmd/harness -workspace . -exercise context-cancel/v1 -timeout 3m
 ## 可复现验证
 
 ```bash
-go test ./...
-go test -race ./...
-go vet ./...
+./scripts/check.sh # 本地与 CI 共用：格式、依赖漂移、测试、race、vet、全部命令编译
 
 # 无浏览器、无外部模型或向量服务的集成验收
 ./scripts/verify-harness.sh -mode offline
@@ -114,6 +113,8 @@ ROUTER_MODEL=YOUR_SCHEMA_COMPATIBLE_MODEL \
 
 测试环境、完整结果、模型兼容性和 17 份文档 / 1,206 个片段的快照依据见[验收记录](docs/harness-validation.md)。这些记录对应功能和失败场景；容量、检索质量及费用收益需要另行评测。
 
+统一交付检查与接口、并发、持久化约束见[开发指南](docs/development.md)。模型等待队列与 HTTP 服务容量分别配置，限额按进程生效；受控并发与停机验证见[工程约束验收](docs/service-engineering-validation.md)。
+
 ## 从哪里读代码
 
 | 阅读目标 | 建议入口 |
@@ -122,6 +123,7 @@ ROUTER_MODEL=YOUR_SCHEMA_COMPATIBLE_MODEL \
 | 模型请求怎样排队、重试和停止 | [`internal/llm/gateway.go`](internal/llm/gateway.go) → [传输适配](internal/llm/openai_compatible.go) → [SSE 处理](internal/llm/stream.go) |
 | 中断后如何判断能否继续 | [`internal/harness/checkpoint.go`](internal/harness/checkpoint.go) → [`internal/personal/recovery.go`](internal/personal/recovery.go) → [收据核对](internal/extension/reconcile.go) |
 | 记忆怎样保存、同步和校验 | [`internal/personalmemory/store.go`](internal/personalmemory/store.go) → [`service.go`](internal/personalmemory/service.go) → [`milvus.go`](internal/personalmemory/milvus.go) |
+| 研究 MCP 怎样限制请求并安全退出 | [`internal/mcphttp`](internal/mcphttp) → [`cmd/research-mcp`](cmd/research-mcp) |
 | 验证怎样复现 | [`internal/acceptance`](internal/acceptance)、[测试与验收矩阵](docs/architecture.md#验证方式) |
 
 ## 运行演示

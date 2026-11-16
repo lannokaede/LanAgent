@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,6 +24,42 @@ func TestLocalOverridesEnvironmentPrecedenceAndLimits(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "config.local.yaml"), []byte("llm:\n  concurrency: 0\n"), 0600)
 	if _, e = Load(dir); e == nil {
 		t.Fatal("accepted invalid concurrency")
+	}
+}
+
+func TestModelQueueDefaultZeroAndBounds(t *testing.T) {
+	t.Setenv("LANAGENT_API_CONFIG", filepath.Join(t.TempDir(), "none.json"))
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	for _, tc := range []struct {
+		body  string
+		want  int
+		valid bool
+	}{
+		{"rag:\n  enabled: false\n", 32, true},
+		{"llm:\n  queue_limit: 0\n", 0, true},
+		{"llm:\n  queue_limit: 7\n", 7, true},
+		{"llm:\n  queue_limit: -1\n", 0, false},
+		{"llm:\n  queue_limit: 1025\n", 0, false},
+	} {
+		t.Run(fmt.Sprintf("%d_%v", tc.want, tc.valid), func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(tc.body), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(dir)
+			if !tc.valid {
+				if err == nil {
+					t.Fatal("accepted invalid model queue limit")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.LLM.QueueLimit != tc.want {
+				t.Fatalf("model queue limit=%d, want %d", cfg.LLM.QueueLimit, tc.want)
+			}
+		})
 	}
 }
 func TestOfflineProfileDoesNotRequireChatCredential(t *testing.T) {

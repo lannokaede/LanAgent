@@ -33,10 +33,19 @@ type Gateway struct {
 	provider Provider
 	timeout  time.Duration
 	slots    chan struct{}
+	queue    chan struct{}
 	active   atomic.Int64
 	waiting  atomic.Int64
+	rejected atomic.Int64
 	retry    RetryPolicy
 }
+
+// ErrOverloaded means no local model slot or waiting position is available.
+// No provider request was made for the rejected acquisition. Callers may shed
+// load or report capacity exhaustion; replaying immediately defeats admission.
+var ErrOverloaded = errors.New("llm gateway waiting queue full")
+
+const DefaultQueueLimit = 32
 
 var _ Provider = (*Gateway)(nil)
 var _ StreamProvider = (*Gateway)(nil)
@@ -45,7 +54,13 @@ func NewGateway(provider Provider, timeout time.Duration) (*Gateway, error) {
 	if provider == nil || timeout <= 0 {
 		return nil, errors.New("llm gateway requires provider and positive timeout")
 	}
-	return &Gateway{provider: provider, timeout: timeout, slots: make(chan struct{}, 2), retry: DefaultRetryPolicy()}, nil
+	return &Gateway{
+		provider: provider,
+		timeout:  timeout,
+		slots:    make(chan struct{}, 2),
+		queue:    make(chan struct{}, DefaultQueueLimit),
+		retry:    DefaultRetryPolicy(),
+	}, nil
 }
 func (g *Gateway) SetRetryPolicy(p RetryPolicy) error {
 	if err := p.Validate(); err != nil {
@@ -63,8 +78,25 @@ func (g *Gateway) StreamChat(ctx context.Context, req *ChatRequest, emit func(st
 
 func (g *Gateway) acquire(ctx context.Context) (time.Duration, error) {
 	start := time.Now()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	// Uncontended calls need no queue position. Waiting has a separate bound from
+	// in-flight work, so a burst cannot leave arbitrarily many goroutines parked.
+	select {
+	case g.slots <- struct{}{}:
+		g.active.Add(1)
+		return time.Since(start), nil
+	default:
+	}
+	select {
+	case g.queue <- struct{}{}:
+	default:
+		g.rejected.Add(1)
+		return time.Since(start), ErrOverloaded
+	}
 	g.waiting.Add(1)
-	defer g.waiting.Add(-1)
+	defer func() { g.waiting.Add(-1); <-g.queue }()
 	select {
 	case g.slots <- struct{}{}:
 		g.active.Add(1)
@@ -186,6 +218,20 @@ func (g *Gateway) SetConcurrency(n int) {
 		g.slots = make(chan struct{}, n)
 	}
 }
+
+// SetQueueLimit configures the waiting bound before the gateway is shared.
+// Zero permits only immediately available model slots; it never means unbounded.
+func (g *Gateway) SetQueueLimit(n int) error {
+	if n < 0 || n > 1024 {
+		return errors.New("model queue limit must be 0–1024")
+	}
+	g.queue = make(chan struct{}, n)
+	return nil
+}
 func (g *Gateway) Stats() map[string]any {
-	return map[string]any{"active": g.active.Load(), "waiting": g.waiting.Load(), "capacity": cap(g.slots)}
+	return map[string]any{
+		"active": g.active.Load(), "waiting": g.waiting.Load(),
+		"capacity": cap(g.slots), "queue_capacity": cap(g.queue),
+		"rejected": g.rejected.Load(),
+	}
 }

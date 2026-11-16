@@ -4,14 +4,12 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -19,6 +17,7 @@ import (
 	"time"
 
 	"github.com/lannokaede/LanAgent/internal/config"
+	"github.com/lannokaede/LanAgent/internal/mcphttp"
 	"github.com/lannokaede/LanAgent/internal/rag"
 	"github.com/lannokaede/LanAgent/internal/research"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -52,6 +51,10 @@ func run(ctx context.Context, args []string, status io.Writer) error {
 	tokenEnv := flags.String("token-env", "LANAGENT_RESEARCH_TOKEN", "HTTP authentication token environment variable")
 	remote := flags.Bool("allow-remote", false, "allow binding outside loopback; deploy behind TLS reverse proxy")
 	origins := flags.String("allowed-origins", "", "exact comma-separated HTTP Origin allowlist")
+	maxConcurrent := flags.Int("http-concurrency", 8, "maximum active POST requests and actual tool callbacks; GET SSE has a separate equal limit")
+	requestTimeout := flags.Duration("http-request-timeout", time.Minute, "HTTP request and tool execution timeout; excludes GET SSE lifetime")
+	sessionTimeout := flags.Duration("http-session-timeout", 5*time.Minute, "idle MCP session timeout")
+	shutdownTimeout := flags.Duration("http-shutdown-timeout", 5*time.Second, "HTTP drain budget before cancellation and forced connection close")
 	if e := flags.Parse(args); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
 			return nil
@@ -60,6 +63,9 @@ func run(ctx context.Context, args []string, status io.Writer) error {
 	}
 	if *maxSearch < 1 || *maxFetch < 1 || flags.NArg() != 0 || *write && !*knowledge || *initStore && !*knowledge {
 		return errors.New("use named flags; write/init-store require -knowledge")
+	}
+	if *maxConcurrent < 1 || *maxConcurrent > 1024 || *requestTimeout <= 0 || *sessionTimeout <= 0 || *shutdownTimeout <= 0 {
+		return errors.New("http-concurrency must be 1..1024 and HTTP timeouts must be positive")
 	}
 	token := ""
 	if *listen != "" {
@@ -117,57 +123,20 @@ func run(ctx context.Context, args []string, status io.Writer) error {
 		fmt.Fprintln(status, "LanAgent research MCP: stdio; data is private and persistent")
 		return server.Run(ctx, &mcp.StdioTransport{})
 	}
-	handler := httpHandler(server, token, strings.Split(*origins, ","))
+	transport, e := mcphttp.New(server, mcphttp.Options{
+		Token: token, AllowedOrigins: strings.Split(*origins, ","), MaxConcurrent: *maxConcurrent,
+		RequestTimeout: *requestTimeout, SessionTimeout: *sessionTimeout, ShutdownTimeout: *shutdownTimeout,
+	})
+	if e != nil {
+		return e
+	}
+	defer transport.Close()
 	listener, e := net.Listen("tcp", *listen)
 	if e != nil {
 		return e
 	}
-	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 16 << 10}
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			stop, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			httpServer.Shutdown(stop)
-		case <-done:
-		}
-	}()
 	fmt.Fprintln(status, "LanAgent research MCP:", listener.Addr().String(), "/mcp")
-	e = httpServer.Serve(listener)
-	if errors.Is(e, http.ErrServerClosed) {
-		return nil
-	}
-	return e
-}
-func httpHandler(server *mcp.Server, token string, origins []string) http.Handler {
-	endpoint := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/mcp" {
-			http.NotFound(w, r)
-			return
-		}
-		if origin := r.Header.Get("Origin"); origin != "" {
-			allowed := false
-			for _, o := range origins {
-				if o != "" && o == origin {
-					allowed = true
-				}
-			}
-			if !allowed {
-				http.Error(w, "origin refused", http.StatusForbidden)
-				return
-			}
-		}
-		expected := "Bearer " + token
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
-		endpoint.ServeHTTP(w, r)
-	})
+	return transport.Serve(ctx, listener)
 }
 
 // Index maintenance runs without a chat model, embedding service or vector DB.

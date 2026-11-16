@@ -18,12 +18,13 @@ type dependencyRule struct {
 	allowed     []string
 }
 
-// These three packages provide the reusable execution core. Configuration,
+// These packages provide the execution core and business-independent transport. Configuration,
 // persistence and terminal integration belong to their callers, not the core.
 var corePackageRules = []dependencyRule{
 	{"internal/harness", []string{"internal/contextbudget", "internal/llm", "internal/tool", "internal/observability/telemetry"}},
 	{"internal/llm", []string{"internal/engineering", "internal/observability/telemetry"}},
 	{"internal/contextbudget", []string{"internal/llm"}},
+	{"internal/mcphttp", nil},
 }
 
 func TestCorePackageDependencies(t *testing.T) {

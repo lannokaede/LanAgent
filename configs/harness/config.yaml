@@ -1,10 +1,11 @@
-# Personal CLI profile; no application database or background workers.
+# CLI profile; RAG/vector services are opt-in. Local SQLite memory is enabled by the CLI.
 # Configure LLM_BASE_URL, LLM_MODEL, LLM_API_KEY in the environment or config.local.yaml.
 llm:
   base_url: ""
   model: ""
   timeout: 45s
   concurrency: 1
+  queue_limit: 32 # waiting requests; 0 rejects immediately when all slots are busy
   retry:
     max_attempts: 3
     base_delay: 250ms

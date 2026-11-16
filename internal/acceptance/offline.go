@@ -14,7 +14,7 @@ func (v *verifier) offline(ctx context.Context) {
 	v.run(ctx, "offline_regression", "offline", func() (map[string]any, error) {
 		packages := []string{
 			"./internal/acceptance", "./internal/application", "./internal/architecture",
-			"./internal/harness", "./internal/contextbudget", "./internal/llm", "./internal/rag",
+			"./internal/harness", "./internal/contextbudget", "./internal/llm", "./internal/rag", "./internal/mcphttp",
 			"./internal/personal", "./internal/personalmemory", "./internal/extension", "./internal/cli",
 			"./internal/interview", "./cmd/harness", "./cmd/harness-verify",
 		}

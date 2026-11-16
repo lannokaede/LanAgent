@@ -24,6 +24,9 @@ func (r *Runtime) openModels(cfg *config.Config) (*llm.Gateway, llm.Provider, er
 			return nil, err
 		}
 		gateway.SetConcurrency(cfg.LLM.Concurrency)
+		if err = gateway.SetQueueLimit(cfg.LLM.QueueLimit); err != nil {
+			return nil, err
+		}
 		if err = gateway.SetRetryPolicy(cfg.LLM.Retry); err != nil {
 			return nil, err
 		}

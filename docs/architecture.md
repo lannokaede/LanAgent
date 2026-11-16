@@ -20,11 +20,12 @@ LanAgent 将模型决策和宿主执行分开：模型可以提出回答或工�
 | `internal/rag` | 文档切分、Embedding、向量入库与检索 | `Engine` 接受 Embedder/Store；配置构造的 Engine 统一关闭资源 |
 | `internal/interview`、`practice` | 题目与真实答案、训练进度、固定 Go 题的 Docker 验证 | 工具接入，不改变 Harness 主循环 |
 | `internal/acceptance` | 离线/真实场景编排、隔离目录与集合、报告与语料核验 | `Run(ctx, Options, progress)`；命令只解析参数与信号 |
+| `internal/mcphttp` | MCP HTTP 鉴权、请求/工具/SSE 容量、期限与关闭 | `New` → `Serve` → 幂等 `Close`；等待工具退出后释放依赖 |
 | `internal/research`、`cmd/research-mcp` | 官方资料抓取、工件、候选、知识导入及持久任务 | 通过 MCP 工具接入；见[研究 MCP](research-mcp.md) |
 
 新增能力时，先确定状态归属和失败后的处理方式。例如，新增模型供应商应实现 Provider；新增外部动作应注册工具。业务工具不需要在 CLI 或模型循环中增加分支。配置读取集中在装配入口，执行核心通过参数获得策略。
 
-核心依赖检查位于 [`internal/architecture`](../internal/architecture/dependencies_test.go)，只约束 Harness、LLM、上下文预算三个包的直接内部依赖，防止它们反向读取 CLI 或个人配置。检查随 `go test ./...` 执行。
+核心依赖检查位于 [`internal/architecture`](../internal/architecture/dependencies_test.go)，约束 Harness、LLM、上下文预算与 MCP HTTP 传输的直接内部依赖，防止它们反向读取 CLI 或个人配置。检查随 `go test ./...` 执行。
 
 ## 一次请求的路径
 
@@ -67,6 +68,8 @@ sequenceDiagram
 默认采用规则；明确“不使用工具”的请求可在多轮中直答，仍使用历史、记忆与预算。文件动作、需要核实的网页信息、面试状态和不确定请求保留工具路径。混合模式只把有界近期原始历史与当前请求交给可选分类模型，不把召回记忆、工具结果当作分类指令。
 
 分类超时、格式错误或严格结构化输出不兼容时回退 ReAct。直答请求不提供工具，若供应商仍返回调用则拒绝执行。决策在主模型调用前持久化；恢复沿用该决策，避免配置变化重新解释未完成任务。
+
+模型网关分别限制在途调用和等待容量。默认等待 32 个，容量耗尽返回本地 `ErrOverloaded`，不计作上游尝试；重试再次排队也必须重新准入。HTTP 传输把请求、真实工具回调及 GET SSE 的槽位分开；过载快速拒绝，避免未完成回调因 HTTP 断开提前释放容量。实际关闭顺序和参数见[研究 MCP 使用说明](research-mcp.md)。
 
 模型网关同时覆盖流式、非流式、分类和摘要请求。三个计数分别描述不同工作：
 
@@ -111,6 +114,7 @@ sequenceDiagram
 | --- | --- | --- |
 | 分类超时或不支持 Schema | 回退工具路径，记录来源 | `internal/harness/hybrid_test.go` |
 | 摘要生成失败 | 按完整工具组裁剪 | `internal/harness/context_test.go` |
+| 等待队列或服务入口满 | 模型返回本地过载；HTTP 入口返回 503 / Retry-After | `internal/llm/admission_test.go`、`internal/mcphttp` |
 | 429/502/503/504 | 满足边界时有限重试；期限内无法退避则返回 | `internal/llm/retry_test.go` |
 | 流中断或事件回调失败 | 停止；不重复已输出的模型请求 | `internal/llm/stream_test.go`、`internal/personal/session_test.go` |
 | 工具完成后的日志失败 | 结果检查点已保存，恢复不重放工具 | `internal/personal/recovery_test.go` |
@@ -128,12 +132,10 @@ OTel 和模型调用元数据不记录提示词、工具参数、正文或密钥
 ## 验证方式
 
 ```bash
-go test ./...
-go test -race ./...
-go vet ./...
+./scripts/check.sh
 ./scripts/verify-harness.sh -mode offline
 ```
 
-CI 执行格式检查、普通测试、race 和 vet。测试使用真实模块配合受控 HTTP/MCP 替身，覆盖协议与失败边界；真实服务验收另行通过 `internal/acceptance.Run` 驱动 CLI，使用独立工作目录、SQLite 和临时 Milvus 集合，结束后清理。
+本地与 CI 统一执行格式、依赖漂移、普通测试、race、vet 和全部命令编译，规则见[开发与交付约束](development.md)。测试使用真实模块配合受控 HTTP/MCP 替身，覆盖协议与失败边界；真实服务验收另行通过 `internal/acceptance.Run` 驱动 CLI，使用独立工作目录、SQLite 和临时 Milvus 集合，结束后清理。
 
 真实服务报告区分通过、失败、未执行场景，记录请求次数、耗时和实际证据。已验证的文件读取后恢复、记忆过滤、摘要、Docker 及语料校验见[完整验收记录](harness-validation.md)。离线验证不代表真实服务可用，功能验收也不代表并发容量或检索质量评测。
