@@ -18,7 +18,7 @@ func TestDockerExerciseCases(t *testing.T) {
 	}
 	image := os.Getenv("PRACTICE_DOCKER_IMAGE")
 	if image == "" {
-		image = "lanagent/practice-go:1.26.9-v1"
+		image = "lanagent/practice-go:1.26.11-v1"
 	}
 	base := os.Getenv("PRACTICE_DOCKER_WORK_DIR")
 	if base == "" {

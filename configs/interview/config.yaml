@@ -18,7 +18,7 @@ rag:
   collection: "lanagent_go_interview_v1"
   knowledge_base: "go-backend-interview"
 practice:
-  image: "lanagent/practice-go:1.26.9-v1"
+  image: "lanagent/practice-go:1.26.11-v1"
   work_dir: ".runtime/practice"
 telemetry:
   enabled: false

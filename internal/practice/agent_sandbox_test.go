@@ -118,7 +118,7 @@ func TestAgentSandboxRealDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(work)
-	executor := NewDockerExecutor("lanagent/practice-go:1.26.9-v1", "agent-sandbox-integration", work)
+	executor := NewDockerExecutor("lanagent/practice-go:1.26.11-v1", "agent-sandbox-integration", work)
 	defer executor.Cleanup(context.Background())
 	analyzer := &AgentAnalyzer{Provider: &sandboxProvider{t: t, code: result.ProposedCode, result: result}, Sandbox: NewAgentSandbox(executor, 1)}
 	out, _, err := analyzer.Analyze(context.Background(), e, Attempt{Submit: Submit{Code: e.StarterCode}}, nil)

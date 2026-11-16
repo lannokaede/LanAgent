@@ -21,7 +21,7 @@ go run ./cmd/harness -config configs/interview -workspace . \
 go run ./cmd/harness -workspace . -session YOUR_SESSION_ID -resume
 ```
 
-默认不依赖业务数据库；`configs/interview` 的知识检索需要已有 Milvus 与 Embedding 服务。`-exercise` 需要 Docker 和预先构建的 `lanagent/practice-go:1.26.9-v1` 镜像。其他题目为 `concurrent-collect/v1`、`worker-exit/v1`。沙箱工作目录沿用 `practice.work_dir`（默认 `.runtime/practice`），应位于 Docker daemon 可见的本机目录；不使用可能被 Snap 隔离的 `/tmp`。固定测试与代码限制沿用练习模块，模型不能选择自己的测试或任意容器命令。
+默认不依赖业务数据库；`configs/interview` 的知识检索需要已有 Milvus 与 Embedding 服务。`-exercise` 需要 Docker 和预先构建的 `lanagent/practice-go:1.26.11-v1` 镜像。其他题目为 `concurrent-collect/v1`、`worker-exit/v1`。沙箱工作目录沿用 `practice.work_dir`（默认 `.runtime/practice`），应位于 Docker daemon 可见的本机目录；不使用可能被 Snap 隔离的 `/tmp`。固定测试与代码限制沿用练习模块，模型不能选择自己的测试或任意容器命令。
 
 交互命令：
 
@@ -121,6 +121,8 @@ telemetry:
 会话 JSONL 新增 `model_attempt_started/completed`、`model_retry`、`route_selected` 与 `run_statistics` 元数据事件。最终统计从持久日志恢复，覆盖此前失败的尝试及分类、摘要调用。仅累计供应商实际返回的 Token 用量，`unknown_usage_attempts` 大于零表示统计不完整，不能用零代替费用。旧日志没有模型尝试记录时保留原有累计值。统计读取上限为单会话 256 MiB，超过时明确报错。
 
 本地会话记录用于恢复，包含原始输入与工具结果；独立的 OTel 文件或 OTLP 只包含 ID、状态、耗时、模型名及用量等元数据，不输出提示词、参数、结果或凭据。
+
+使用 OTLP 时配置 `telemetry.endpoint`。无路径的基础 URL（如 `http://127.0.0.1:4318`）导出到 `/v1/traces`；显式路径（包括 `/`）按配置保留。此行为由项目适配层维持，不依赖 SDK 默认路径。
 
 ## 验证
 

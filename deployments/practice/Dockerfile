@@ -1,4 +1,4 @@
-FROM golang:1.26.9-bookworm
+FROM golang:1.26.11-bookworm
 ENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOCACHE=/opt/go-cache
 RUN mkdir -p /opt/warm && printf 'module warm\n\ngo 1.26.0\n' > /opt/warm/go.mod \
  && printf 'package warm\nimport("context";"sync";"time";"fmt";"errors";"sort";"math";"testing")\nfunc TestWarm(t *testing.T){_ = context.Background();_ = sync.Mutex{};_ = time.Second;_ = fmt.Sprint(1);_ = errors.New("warm");sort.Ints([]int{});_ = math.Pi}\n' > /opt/warm/warm_test.go \

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -35,7 +36,16 @@ func Init(ctx context.Context, c Config) (func(context.Context) error, error) {
 	var file *os.File
 	var err error
 	if c.Endpoint != "" {
-		exporter, err = otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(c.Endpoint))
+		// Preserve the pre-1.45 base-URL contract. Explicit paths, including
+		// "/", remain exact collector endpoints rather than URL prefixes.
+		endpoint, parseErr := url.Parse(c.Endpoint)
+		if parseErr != nil {
+			return nil, errors.New("invalid telemetry endpoint URL")
+		}
+		if endpoint.Path == "" {
+			endpoint.Path = "/v1/traces"
+		}
+		exporter, err = otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint.String()))
 	} else {
 		if c.File == "" {
 			return nil, errors.New("telemetry requires a local file or OTLP endpoint")

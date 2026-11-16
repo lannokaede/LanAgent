@@ -9,6 +9,6 @@
     "demo:images": "node scripts/generate-demo-images.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "1.51.1"
+    "@playwright/test": "1.55.1"
   }
 }

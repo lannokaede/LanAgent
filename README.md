@@ -40,7 +40,7 @@ flowchart TD
 
 ## 快速开始
 
-默认配置只需要 Go 1.26 或更新版本，以及支持工具调用与 SSE 的 OpenAI Compatible Chat Completions 服务。
+默认配置只需要 Go 1.26.11 或更新版本，以及支持工具调用与 SSE 的 OpenAI Compatible Chat Completions 服务。
 
 ```bash
 git clone https://github.com/lannokaede/LanAgent.git
@@ -81,7 +81,7 @@ go run ./cmd/knowledge import-corpus -config configs/interview -dir .runtime/cor
 go run ./cmd/harness -config configs/interview -workspace .
 
 # 预先构建固定 Go 练习环境
-docker build -t lanagent/practice-go:1.26.9-v1 deployments/practice
+docker build -t lanagent/practice-go:1.26.11-v1 deployments/practice
 go run ./cmd/harness -workspace . -exercise context-cancel/v1 -timeout 3m
 ```
 

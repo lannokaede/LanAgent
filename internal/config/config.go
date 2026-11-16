@@ -84,7 +84,7 @@ func Load(dir string) (*Config, error) {
 	v.SetDefault("llm.retry.max_attempts", 3)
 	v.SetDefault("llm.retry.base_delay", "250ms")
 	v.SetDefault("llm.queue_limit", llm.DefaultQueueLimit)
-	for key, value := range map[string]any{"context.window": 32768, "context.output_reserve": 4096, "context.tool_reserve": 2048, "context.summary_tokens": 512, "llm.timeout": "45s", "llm.concurrency": 1, "practice.image": "lanagent/practice-go:1.26.9-v1", "practice.work_dir": ".runtime/practice", "telemetry.file": ".runtime/traces.jsonl"} {
+	for key, value := range map[string]any{"context.window": 32768, "context.output_reserve": 4096, "context.tool_reserve": 2048, "context.summary_tokens": 512, "llm.timeout": "45s", "llm.concurrency": 1, "practice.image": "lanagent/practice-go:1.26.11-v1", "practice.work_dir": ".runtime/practice", "telemetry.file": ".runtime/traces.jsonl"} {
 		v.SetDefault(key, value)
 	}
 	if e := v.ReadInConfig(); e != nil {

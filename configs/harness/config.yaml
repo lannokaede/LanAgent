@@ -10,7 +10,7 @@ llm:
     max_attempts: 3
     base_delay: 250ms
 practice:
-  image: "lanagent/practice-go:1.26.9-v1"
+  image: "lanagent/practice-go:1.26.11-v1"
   work_dir: ".runtime/practice"
 rag:
   enabled: false
