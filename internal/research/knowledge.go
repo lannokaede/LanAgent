@@ -149,6 +149,9 @@ func (s *Service) Job(id string) (Job, error) {
 	if !ok {
 		return Job{}, errors.New("job not found")
 	}
+	if s.workerError != "" && (j.Status == "queued" || j.Status == "running") {
+		j.Error = s.workerError
+	}
 	return j, nil
 }
 func (s *Service) Operation(id string) (Operation, error) {
@@ -281,6 +284,18 @@ func (s *Service) worker() {
 		}
 	}
 }
+
+var errJobNotQueued = errors.New("job no longer queued")
+
+// A failed checkpoint leaves the durable task untouched for restart recovery.
+// Stop instead of repeatedly selecting that same task on a broken filesystem.
+func (s *Service) stopWorkerForCheckpointFailure() bool {
+	s.mu.Lock()
+	s.workerError = "worker_checkpoint_failed; fix storage and restart service"
+	s.mu.Unlock()
+	return false
+}
+
 func (s *Service) runJob(job Job) bool {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -290,15 +305,18 @@ func (s *Service) runJob(job Job) bool {
 	e := s.update(func(st *state) error {
 		j := st.Jobs[job.ID]
 		if j.Status != "queued" {
-			return errors.New("job no longer queued")
+			return errJobNotQueued
 		}
 		j.Status = "running"
 		st.Jobs[j.ID] = j
 		st.RepairCandidate = j.CandidateID
 		return nil
 	})
-	if e != nil {
+	if errors.Is(e, errJobNotQueued) {
 		return true
+	}
+	if e != nil {
+		return s.stopWorkerForCheckpointFailure()
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Minute)
 	defer cancel()
@@ -366,7 +384,7 @@ func (s *Service) runJob(job Job) bool {
 		st.Jobs[j.ID] = j
 		return nil
 	}); e2 != nil {
-		return false
+		return s.stopWorkerForCheckpointFailure()
 	}
 	return true
 }

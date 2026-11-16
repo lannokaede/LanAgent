@@ -29,6 +29,7 @@ type Service struct {
 	cancel       context.CancelFunc
 	activeCancel context.CancelFunc
 	activeJob    string
+	workerError  string
 	wake         chan struct{}
 	wg           sync.WaitGroup
 }
