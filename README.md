@@ -4,7 +4,7 @@
 
 LangGraphGo 负责模型—工具循环；项目实现模型调用策略、工具执行约束、会话恢复和记忆同步。面试与资料研究作为工具接入同一执行流程。
 
-[快速开始](#快速开始) · [工程设计](docs/architecture.md) · [开发约束](docs/development.md) · [验收记录](docs/harness-validation.md) · [完整使用说明](docs/personal-harness.md)
+[快速开始](#快速开始) · [工程设计](docs/architecture.md) · [开发约束](docs/development.md) · [工程审查](docs/engineering-audit-2026-11-16.md) · [验收记录](docs/harness-validation.md) · [完整使用说明](docs/personal-harness.md)
 
 ## 核心设计
 
