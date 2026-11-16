@@ -42,6 +42,8 @@ type Session struct {
 	trace   *os.File
 	lock    *os.File
 	pending *harness.Checkpoint
+	// syncDir is the private filesystem-failure seam for the rename commit point.
+	syncDir func() error
 }
 
 func Open(dir, id, workspace string) (_ *Session, err error) {
@@ -68,7 +70,11 @@ func Open(dir, id, workspace string) (_ *Session, err error) {
 		root.Close()
 		return nil, fmt.Errorf("session is locked: %w", e)
 	}
-	s := &Session{ID: id, root: root, lock: lock, state: snapshot{Version: 1, Workspace: workspace}}
+	s := &Session{
+		ID: id, root: root, lock: lock,
+		state:   snapshot{Version: 1, Workspace: workspace},
+		syncDir: func() error { return syncSessionDirectory(root) },
+	}
 	defer func() {
 		if err != nil {
 			s.Close()
@@ -213,7 +219,12 @@ func (s *Session) writeAtomic(target string, data []byte) error {
 	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
 		return err
 	}
-	return s.root.Rename(name, target)
+	if err := s.root.Rename(name, target); err != nil {
+		return err
+	}
+	// Syncing the temporary file only persists its data. The replacement name
+	// also needs a directory commit before a tool can rely on this checkpoint.
+	return s.syncDir()
 }
 
 func DefaultStateDir() (string, error) {
