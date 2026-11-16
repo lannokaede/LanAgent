@@ -10,6 +10,7 @@
 
 | 检查 | 约束与结果 |
 | --- | --- |
+| `scripts/check-private-files.sh` | 只检查 Git 索引中的文件路径，拒绝私有目录、本地凭据配置和业务数据库进入提交 |
 | `gofmt -l` | 检查已跟踪及未跟踪的 Go 源文件，跳过被忽略的运行数据；仅报告，不自动改源码 |
 | `go mod tidy -diff` | 检测依赖清单漂移，输出所需差异；不改 `go.mod`、`go.sum` |
 | `go test -mod=readonly ./...` | 验证协议、状态、失败路径和架构依赖，依赖不完整时直接失败 |
@@ -27,6 +28,18 @@ go test ./internal/harness -run TestResume
 ```
 
 `--quick` 用于本地迭代。CI 固定执行默认全量入口；提交前也应跑完整检查。默认测试不依赖个人模型凭据、在线 Milvus 或 Docker；需要这些依赖的验收另外执行并保留实际结果。
+
+## 提交与推送
+
+- 一个提交围绕一个明确目的组织，实现、相关测试和说明可以一起提交。新提交使用 `feat:`、`fix:`、`refactor:`、`docs:`、`test:`、`build:`、`ci:` 或 `chore:` 加具体摘要，描述实际结果；历史提交保留原样。
+- 修改 Go 依赖时一并提交 `go.mod` / `go.sum`；修改演示工具的 npm 依赖时一并提交 `package.json` / `package-lock.json`，通过 `npm ci` 安装锁定版本。
+- 提交前核对 `git status --short`、`git diff --cached --stat` 和暂存差异，运行完整 `./scripts/check.sh`；真实模型、向量库与 Docker 场景按变更范围另外验收，记录实际执行或跳过的情况。
+- 功能分支可通过 PR 记录问题、行为与验证；直接更新主分支时也执行相同检查。推送前 fetch 并检查本地与远端差异，使用普通 fast-forward 推送；远端已变化时先核对并整合，不能用强制覆盖代替处理分歧。
+- 推送后再次 fetch，核对本地提交与远端分支的 SHA，并查看该提交对应的 GitHub Actions 结果。上传成功与 CI 通过分别确认；构建附件、Release 和部署各自遵循对应流程。
+
+`out/` 中的个人简历、工作笔记以及 `.runtime/`、`.lanagent/state/` 运行目录通过仓库规则排除；Docker 构建也排除这些目录和 `node_modules` 等开发产物。路径检查同时拒绝强制加入索引的 `.env`、`.env.*`、`*.local.json`、`*.local.yaml`、`*.local.yml` 以及数据库和 SQLite sidecar 文件。
+
+安全配置示例使用 `.env.example`、`config.example.yaml` 或 `config.local.example.yaml` 等显式名称。固定数据库测试夹具可放在 `testdata/` 或 `fixtures/`；此例外不覆盖私有目录或本地配置命名。检查只读路径，不读取文件内容；示例和夹具仍应保持固定、无真实凭据。规则误报时先核对文件职责，不能以 `git add -f` 绕过检查。
 
 ## 修改实现时的约束
 

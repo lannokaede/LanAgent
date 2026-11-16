@@ -5,7 +5,7 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 usage() {
   printf 'Usage: ./scripts/check.sh [--quick|--help]\n'
-  printf 'Default: formatting, module drift, tests, race, vet, command builds.\n'
+  printf 'Default: private paths, formatting, module drift, tests, race, vet, command builds.\n'
   printf '  --quick  Skip race for a local iteration; CI always runs the default.\n'
 }
 
@@ -20,6 +20,9 @@ case "${1:-}" in
   --help|-h) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
+
+printf 'Checking tracked private-file paths\n'
+./scripts/check-private-files.sh
 
 printf 'Checking Go formatting\n'
 # Include new source files before git add, while ignoring private runtime data.

@@ -17,7 +17,11 @@ dist/
 *.lock
 *.local.json
 *.local.yaml
+*.local.yml
 .cache/
 .lanagent/state/
 
 node_modules
+
+# Private resumes and local working notes; shared across all checkouts.
+/out/

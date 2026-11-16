@@ -6,6 +6,25 @@
 **/config.local.yaml
 **/*.local.json
 **/*.local.yaml
+**/*.local.yml
 **/*.jsonl
 bin
 dist
+
+# Private documents and development artifacts are not build inputs.
+/out/
+node_modules
+**/node_modules
+.cache
+**/.cache
+*.log
+**/*.log
+coverage*
+*.test
+**/*.test
+.DS_Store
+*.exe
+**/*.exe
+*.tmp
+**/*.tmp
+.lanagent/state
